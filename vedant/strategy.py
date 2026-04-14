@@ -329,7 +329,7 @@ class Trader:
         if deficit > 0:
             if not reached_80:
                 # Stage 1: Sweep up to FV + 12 absolutely indiscriminately
-                max_buy_price = fair_center + 12
+                max_buy_price = fair_center + 10
                 pending_buys = self._take_asks(orders, product, depth, max_buy_price, position, pending_buys, max_total=deficit)
 
                 remaining = limit - (position + pending_buys)
