@@ -5,9 +5,11 @@ from typing import Optional
 from prosperity4bt.datamodel import Symbol, Trade
 from prosperity4bt.file_reader import FileReader
 
-DEFAULT_POSITION_LIMIT = 50
+DEFAULT_POSITION_LIMIT = 80
 
 LIMITS: dict[str, int] = {
+    "ASH_COATED_OSMIUM": 80,
+    "INTARIAN_PEPPER_ROOT": 80,
     "EMERALDS": 80,
     "TOMATOES": 80,
 }
@@ -97,67 +99,98 @@ def create_backtest_data(
 
 
 def has_day_data(file_reader: FileReader, round_num: int, day_num: int) -> bool:
-    with file_reader.file([f"round{round_num}", f"prices_round_{round_num}_day_{day_num}.csv"]) as file:
-        return file is not None
+    candidates = [
+        f"round{round_num}",
+        f"round_{round_num}",
+        f"ROUND_{round_num}",
+        f"ROUND{round_num}",
+    ]
+    for round_dir in candidates:
+        with file_reader.file([round_dir, f"prices_round_{round_num}_day_{day_num}.csv"]) as file:
+            if file is not None:
+                return True
+    return False
 
 
 def read_day_data(file_reader: FileReader, round_num: int, day_num: int, no_names: bool) -> BacktestData:
-    prices = []
-    with file_reader.file([f"round{round_num}", f"prices_round_{round_num}_day_{day_num}.csv"]) as file:
-        if file is None:
-            raise ValueError(f"Prices data is not available for round {round_num} day {day_num}")
+    candidates = [
+        f"round{round_num}",
+        f"round_{round_num}",
+        f"ROUND_{round_num}",
+        f"ROUND{round_num}",
+    ]
 
-        for line in file.read_text(encoding="utf-8").splitlines()[1:]:
+    prices = []
+    prices_file = None
+    for round_dir in candidates:
+        with file_reader.file([round_dir, f"prices_round_{round_num}_day_{day_num}.csv"]) as file:
+            if file is not None:
+                prices_file = file
+                break
+    if prices_file is None:
+        raise ValueError(f"Prices data is not available for round {round_num} day {day_num}")
+
+    for line in prices_file.read_text(encoding="utf-8").splitlines()[1:]:
+        columns = line.split(";")
+
+        prices.append(
+            PriceRow(
+                day=int(columns[0]),
+                timestamp=int(columns[1]),
+                product=columns[2],
+                bid_prices=get_column_values(columns, [3, 5, 7]),
+                bid_volumes=get_column_values(columns, [4, 6, 8]),
+                ask_prices=get_column_values(columns, [9, 11, 13]),
+                ask_volumes=get_column_values(columns, [10, 12, 14]),
+                mid_price=float(columns[15]),
+                profit_loss=float(columns[16]),
+            )
+        )
+
+    trades = []
+    trades_file = None
+    for round_dir in candidates:
+        with file_reader.file([round_dir, f"trades_round_{round_num}_day_{day_num}.csv"]) as file:
+            if file is not None:
+                trades_file = file
+                break
+    if trades_file is not None:
+        for line in trades_file.read_text(encoding="utf-8").splitlines()[1:]:
             columns = line.split(";")
 
-            prices.append(
-                PriceRow(
-                    day=int(columns[0]),
-                    timestamp=int(columns[1]),
-                    product=columns[2],
-                    bid_prices=get_column_values(columns, [3, 5, 7]),
-                    bid_volumes=get_column_values(columns, [4, 6, 8]),
-                    ask_prices=get_column_values(columns, [9, 11, 13]),
-                    ask_volumes=get_column_values(columns, [10, 12, 14]),
-                    mid_price=float(columns[15]),
-                    profit_loss=float(columns[16]),
+            trades.append(
+                Trade(
+                    symbol=columns[3],
+                    price=int(float(columns[5])),
+                    quantity=int(columns[6]),
+                    buyer=columns[1],
+                    seller=columns[2],
+                    timestamp=int(columns[0]),
                 )
             )
 
-    trades = []
-    with file_reader.file([f"round{round_num}", f"trades_round_{round_num}_day_{day_num}.csv"]) as file:
-        if file is not None:
-            for line in file.read_text(encoding="utf-8").splitlines()[1:]:
-                columns = line.split(";")
-
-                trades.append(
-                    Trade(
-                        symbol=columns[3],
-                        price=int(float(columns[5])),
-                        quantity=int(columns[6]),
-                        buyer=columns[1],
-                        seller=columns[2],
-                        timestamp=int(columns[0]),
-                    )
-                )
-
     observations = []
-    with file_reader.file([f"round{round_num}", f"observations_round_{round_num}_day_{day_num}.csv"]) as file:
-        if file is not None:
-            for line in file.read_text(encoding="utf-8").splitlines()[1:]:
-                columns = line.split(",")
+    observations_file = None
+    for round_dir in candidates:
+        with file_reader.file([round_dir, f"observations_round_{round_num}_day_{day_num}.csv"]) as file:
+            if file is not None:
+                observations_file = file
+                break
+    if observations_file is not None:
+        for line in observations_file.read_text(encoding="utf-8").splitlines()[1:]:
+            columns = line.split(",")
 
-                observations.append(
-                    ObservationRow(
-                        timestamp=int(columns[0]),
-                        bidPrice=float(columns[1]),
-                        askPrice=float(columns[2]),
-                        transportFees=float(columns[3]),
-                        exportTariff=float(columns[4]),
-                        importTariff=float(columns[5]),
-                        sugarPrice=float(columns[6]),
-                        sunlightIndex=float(columns[7]),
-                    )
+            observations.append(
+                ObservationRow(
+                    timestamp=int(columns[0]),
+                    bidPrice=float(columns[1]),
+                    askPrice=float(columns[2]),
+                    transportFees=float(columns[3]),
+                    exportTariff=float(columns[4]),
+                    importTariff=float(columns[5]),
+                    sugarPrice=float(columns[6]),
+                    sunlightIndex=float(columns[7]),
                 )
+            )
 
     return create_backtest_data(round_num, day_num, prices, trades, observations)

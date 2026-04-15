@@ -6,8 +6,30 @@ import matplotlib.pyplot as plt
 import pathlib
 
 # Paths
-ROOT = pathlib.Path(__file__).resolve().parent.parent
-DATA = ROOT / "data" / "round_1"
+def resolve_repo_root(start: pathlib.Path) -> pathlib.Path:
+    cur = start
+    for _ in range(6):
+        if (cur / "pyproject.toml").exists() or (cur / "data").exists():
+            return cur
+        if cur.parent == cur:
+            break
+        cur = cur.parent
+    return start
+
+def resolve_data_dir(root: pathlib.Path) -> pathlib.Path:
+    candidates = [
+        root / "data" / "round_1",
+        root / "data" / "ROUND_1",
+        root / "data" / "round1",
+        root / "data" / "ROUND1",
+    ]
+    for c in candidates:
+        if c.exists():
+            return c
+    return candidates[0]
+
+ROOT = resolve_repo_root(pathlib.Path(__file__).resolve().parent)
+DATA = resolve_data_dir(ROOT)
 OUT_DIR = pathlib.Path(__file__).resolve().parent / "advanced_eda"
 FIGS = OUT_DIR / "figures"
 FIGS.mkdir(parents=True, exist_ok=True)
@@ -74,13 +96,19 @@ def analyze_osmium_imbalance(df: pd.DataFrame):
     print("\n--- ASH COATED OSMIUM Advanced Optimizations ---")
     osmium = df[df['product'] == 'ASH_COATED_OSMIUM'].copy()
     
-    # Fix 0/nan spikes
-    osmium = osmium[osmium['mid_price'] > 5000].copy()
+    # Use a clean mid derived from the book to avoid mid_price==0 artifacts.
+    valid = osmium["bid_price_1"].notna() & osmium["ask_price_1"].notna()
+    osmium["raw_mid"] = np.where(valid, (osmium["bid_price_1"] + osmium["ask_price_1"]) / 2.0, np.nan)
+    osmium["clean_mid"] = osmium.groupby("day")["raw_mid"].transform(
+        lambda s: s.interpolate(method="linear", limit_direction="both")
+    )
+    osmium = osmium.dropna(subset=["clean_mid"]).copy()
     
     # Order book imbalance: (BidVol - AskVol) / (BidVol + AskVol)
-    osmium['OIM'] = (osmium['bid_volume_1'] - osmium['ask_volume_1']) / (osmium['bid_volume_1'] + osmium['ask_volume_1'])
-    osmium['next_mid_price'] = osmium['mid_price'].shift(-1)
-    osmium['mid_change'] = osmium['next_mid_price'] - osmium['mid_price']
+    den1 = (osmium["bid_volume_1"].fillna(0) + osmium["ask_volume_1"].fillna(0)).replace(0, np.nan)
+    osmium["OIM"] = ((osmium["bid_volume_1"].fillna(0) - osmium["ask_volume_1"].fillna(0)) / den1).fillna(0.0)
+    osmium["next_mid"] = osmium.groupby("day")["clean_mid"].shift(-1)
+    osmium["mid_change"] = osmium["next_mid"] - osmium["clean_mid"]
     
     # Correlation between OIM and next mid price change
     corr = osmium[['OIM', 'mid_change']].corr().iloc[0, 1]
@@ -95,20 +123,20 @@ def analyze_osmium_imbalance(df: pd.DataFrame):
     # Compare with L2 + L3 imbalance
     osmium['bid_vol_total'] = osmium[['bid_volume_1', 'bid_volume_2', 'bid_volume_3']].sum(axis=1)
     osmium['ask_vol_total'] = osmium[['ask_volume_1', 'ask_volume_2', 'ask_volume_3']].sum(axis=1)
-    osmium['OIM_total'] = (osmium['bid_vol_total'] - osmium['ask_vol_total']) / (osmium['bid_vol_total'] + osmium['ask_vol_total'])
+    denT = (osmium["bid_vol_total"].fillna(0) + osmium["ask_vol_total"].fillna(0)).replace(0, np.nan)
+    osmium['OIM_total'] = ((osmium['bid_vol_total'].fillna(0) - osmium['ask_vol_total'].fillna(0)) / denT).fillna(0.0)
     corr_tot = osmium[['OIM_total', 'mid_change']].corr().iloc[0, 1]
     print(f"\nCorrelation between Total Book Imbalance and Next Tick Mid-Price Change: {corr_tot:.4f}")
     
-    # Trade direction correlation
-    trade_files = sorted(DATA.glob("trades_round_1_day_*.csv"))
-    t_frames = []
-    for fp in trade_files:
-        t_frames.append(pd.read_csv(fp, sep=";"))
-    trades = pd.concat(t_frames, ignore_index=True)
-    trades = trades[trades['symbol'] == 'ASH_COATED_OSMIUM'].copy()
-    # sum trades per timestamp per day
-    trades['buyer_aggressor'] = np.where(trades['buyer'] == '', 0, 1) # This is a placeholder, as the csv might not have aggressor flag directly.
-    # Actually let's just look at spread distance
+    # Binned view (more interpretable than a raw correlation)
+    osmium["OIM_total_bin"] = pd.cut(
+        osmium["OIM_total"],
+        bins=[-1.01, -0.6, -0.2, 0.2, 0.6, 1.01],
+        labels=["Strong Ask", "Slight Ask", "Neutral", "Slight Bid", "Strong Bid"],
+    )
+    agg2 = osmium.groupby("OIM_total_bin")["mid_change"].mean()
+    print("\nAverage Next-Tick Clean-Mid Change by Total-Book Imbalance:")
+    print(agg2)
     print("\nDone with Osmium Advanced EDA.")
 
 def run():

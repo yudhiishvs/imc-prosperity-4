@@ -21,10 +21,12 @@ class Trader:
     OSMIUM_OIM_MULTIPLIER = 4  # Ticks to skew fair value based on full book imbalance
 
     # ── Trending Model Configuration (PEPPER_ROOT) ───────────
-    PEPPER_SLOPE = 0.001       # Deterministic upward trend per timestamp
-    PEPPER_ADJUSTED_HISTORY_LENGTH = 25
-    PEPPER_ACCUMULATE_MAX = 0  # Take liquidity strictly UP TO Fair Value
-    PEPPER_DUMP_MIN = 3        # Dump strictly AT OR ABOVE Fair Value + 3
+    PEPPER_SLOPE = 0.001                # Deterministic upward trend per timestamp
+    PEPPER_POSITION_LIMIT = 80          # Maximum inventory limit target
+    PEPPER_INITIAL_ACC_THRESH = 9       # Max ticks above FV we will cross the spread to acquire initial 80 units
+    PEPPER_SCALP_MIN_MARGIN = 4         # Min ticks above FV required to trigger a sell (1 = "anywhere above FV")
+    PEPPER_MAX_SCALP_VOLUME = 2        # Max volume we are willing to sell into a single bid spike
+    PEPPER_RECOUP_MAX_MARGIN = 3        # Max ticks relative to FV to buy back (0 = "at fair value")
 
     def bid(self) -> int:
         return 15
@@ -32,8 +34,8 @@ class Trader:
     # ── State Persistence ────────────────────────────────────
     def _load_data(self, raw: str) -> dict:
         default_data = {
-            "pepper_adjusted_history": [],
-            "pepper_base_estimate": None
+            "pepper_base_estimate": None,
+            "pepper_reached_80": False
         }
         if not raw:
             return default_data
@@ -44,24 +46,19 @@ class Trader:
         if not isinstance(data, dict):
             return default_data
 
-        adjusted_history = data.get("pepper_adjusted_history", [])
-        if not isinstance(adjusted_history, list):
-            adjusted_history = []
-        cleaned_adjusted = []
-        for value in adjusted_history:
-            if isinstance(value, (int, float)):
-                cleaned_adjusted.append(float(value))
-        cleaned_adjusted = cleaned_adjusted[-self.PEPPER_ADJUSTED_HISTORY_LENGTH:]
-
         base_estimate = data.get("pepper_base_estimate")
         if not isinstance(base_estimate, (int, float)):
             base_estimate = None
         else:
             base_estimate = float(base_estimate)
+            
+        pepper_reached_80 = data.get("pepper_reached_80", False)
+        if not isinstance(pepper_reached_80, bool):
+            pepper_reached_80 = False
 
         return {
-            "pepper_adjusted_history": cleaned_adjusted,
-            "pepper_base_estimate": base_estimate
+            "pepper_base_estimate": base_estimate,
+            "pepper_reached_80": pepper_reached_80
         }
 
     # ── Shared Helpers ───────────────────────────────────────
@@ -255,9 +252,7 @@ class Trader:
         return pending_buys, pending_sells
 
     # ── Trending Logic Integrations (PEPPER_ROOT) ────────────
-    def _pepper_base_estimate(self, adjusted_history: list, current_mid, timestamp: int, stored_base=None):
-        if adjusted_history:
-            return float(statistics.median(adjusted_history))
+    def _pepper_base_estimate(self, current_mid, timestamp: int, stored_base=None):
         if isinstance(stored_base, (int, float)):
             return float(stored_base)
         if current_mid is None:
@@ -300,19 +295,20 @@ class Trader:
         return orders
 
 
-    def _trade_pepper_root(self, state: TradingState, adjusted_history: list, base_estimate) -> List[Order]:
-        """Hybrid Trend-Reversion State Engine."""
+    def _trade_pepper_root(self, state: TradingState, base_estimate, reached_80: bool) -> Tuple[List[Order], bool]:
+        """Two-Stage Macro-Accumulation and Opportunistic Scalping."""
         product = "INTARIAN_PEPPER_ROOT"
         depth = state.order_depths.get(product)
-        if depth is None: return []
+        if depth is None: return [], reached_80
 
         current_mid = self._mid_price(depth)
-        if current_mid is None: return []
+        if current_mid is None: return [], reached_80
 
         orders: List[Order] = []
         position = state.position.get(product, 0)
-        pending_buys = 0
-        pending_sells = 0
+        
+        if position >= self.PEPPER_POSITION_LIMIT:
+            reached_80 = True
         
         if base_estimate is None:
             base_estimate = current_mid  # Fallback for tick 0 instantly
@@ -321,48 +317,53 @@ class Trader:
         fair = float(base_estimate) + self.PEPPER_SLOPE * float(timestamp)
         fair_center = int(round(fair))
 
-        # ── Stage 1: Profit Taking (Sell Drive) ──
-        if position > 0:
-            target_sell_price = fair_center + self.PEPPER_DUMP_MIN
+        pending_buys = 0
+        pending_sells = 0
+
+        # ── Stage 2: Opportunistic Scalping (Only if already reached 80) ──
+        if reached_80 and position > 0:
+            target_sell_price = fair_center + self.PEPPER_SCALP_MIN_MARGIN
             # Hit resting bids at target_sell_price or better
-            pending_sells = self._take_bids(orders, product, depth, target_sell_price, position, pending_sells, max_total=position)
-            
-            # Post passive Ask wall at the spike limit
-            pending_sells = self._place_sell(orders, product, target_sell_price, position - pending_sells, position, pending_sells)
+            pending_sells = self._take_bids(orders, product, depth, target_sell_price, position, pending_sells, max_total=self.PEPPER_MAX_SCALP_VOLUME)
 
-        # ── Stage 2: Accumulation (Buy Drive) ──
-        limit = self.POSITION_LIMIT.get(product, 80)
-        remaining_capacity = limit - (position + pending_buys)
-        if remaining_capacity > 0:
-            target_buy_price = fair_center + self.PEPPER_ACCUMULATE_MAX
-            # Sweep any resting asks at or below target
-            pending_buys = self._take_asks(orders, product, depth, target_buy_price, position, pending_buys, max_total=remaining_capacity)
-            
-            # Post passive Bid wall to capture drifting trend
-            # Optimization: User requested posting slightly above Fair Value
-            # We enforce taking liquidity up to FV, but bidding locally at FV+1 to pull ahead of the drift.
-            bid_post_price = min(fair_center + 1, fair_center + self.PEPPER_ACCUMULATE_MAX + 1)
-            
-            pending_buys = self._place_buy(orders, product, bid_post_price, remaining_capacity - pending_buys, position, pending_buys)
+        # ── Accumulation / Recoup Drive ──
+        deficit = self.PEPPER_POSITION_LIMIT - (position + pending_buys - pending_sells)
+        if deficit > 0:
+            if not reached_80:
+                # Stage 1: Sweep up to FV + INF absolutely indiscriminately
+                max_buy_price = fair_center + self.PEPPER_INITIAL_ACC_THRESH
+                pending_buys = self._take_asks(orders, product, depth, max_buy_price, position, pending_buys, max_total=deficit)
 
-        return orders
+                remaining = self.PEPPER_POSITION_LIMIT - (position + pending_buys - pending_sells)
+                if remaining > 0:
+                    first_bid_qty = (remaining + 1) // 2
+                    second_bid_qty = remaining - first_bid_qty
+                    pending_buys = self._place_buy(orders, product, fair_center + 2, first_bid_qty, position, pending_buys)
+                    if second_bid_qty > 0:
+                        pending_buys = self._place_buy(orders, product, fair_center + 1, second_bid_qty, position, pending_buys)
+            else:
+                # Stage 2: Patient Recouping up to FV + RECOUP_MAX
+                max_buy_price = fair_center + self.PEPPER_RECOUP_MAX_MARGIN
+                # Sweep resting asks at or below target
+                pending_buys = self._take_asks(orders, product, depth, max_buy_price, position, pending_buys, max_total=deficit)
+                
+                remaining = self.PEPPER_POSITION_LIMIT - (position + pending_buys - pending_sells)
+                if remaining > 0:
+                    # Post passive Bid wall safely at fair value
+                    bid_post_price = min(fair_center, fair_center + self.PEPPER_RECOUP_MAX_MARGIN)
+                    pending_buys = self._place_buy(orders, product, bid_post_price, remaining, position, pending_buys)
+
+        return orders, reached_80
 
 
     # ── Main Entry ───────────────────────────────────────────
     def run(self, state: TradingState):
         data = self._load_data(state.traderData)
-        pepper_adjusted_history = data.get("pepper_adjusted_history", [])
 
         pepper_depth = state.order_depths.get("INTARIAN_PEPPER_ROOT")
         pepper_mid = self._mid_price(pepper_depth) if pepper_depth else None
 
-        # Capture detrended price into the rolling array
-        if pepper_mid is not None:
-            adjusted_value = float(pepper_mid) - self.PEPPER_SLOPE * float(state.timestamp)
-            pepper_adjusted_history = (pepper_adjusted_history + [adjusted_value])[-self.PEPPER_ADJUSTED_HISTORY_LENGTH:]
-
         pepper_base_estimate = self._pepper_base_estimate(
-            pepper_adjusted_history,
             pepper_mid,
             state.timestamp,
             data.get("pepper_base_estimate")
@@ -374,13 +375,14 @@ class Trader:
             result["ASH_COATED_OSMIUM"] = self._trade_osmium(state)
 
         if "INTARIAN_PEPPER_ROOT" in state.order_depths:
-            result["INTARIAN_PEPPER_ROOT"] = self._trade_pepper_root(
+            pepper_orders, pepper_reached_80 = self._trade_pepper_root(
                 state,
-                pepper_adjusted_history,
-                pepper_base_estimate
+                pepper_base_estimate,
+                data.get("pepper_reached_80", False)
             )
+            result["INTARIAN_PEPPER_ROOT"] = pepper_orders
+            data["pepper_reached_80"] = pepper_reached_80
 
-        data["pepper_adjusted_history"] = pepper_adjusted_history
         data["pepper_base_estimate"] = pepper_base_estimate
 
         return result, 0, jsonpickle.encode(data)
