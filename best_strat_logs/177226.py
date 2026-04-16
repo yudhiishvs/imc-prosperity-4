@@ -5,14 +5,16 @@ import jsonpickle
 
 class Trader:
     """
+    Hybrid Strategy
     ============================================
-    ASH_COATED_OSMIUM: full Osmium strategy from 177226.py (EMA fair + momentum-tilted layered quoting).
-    INTARIAN_PEPPER_ROOT: detrended long bias + capped scalp sells into bid spikes above FV.
+    ASH_COATED_OSMIUM from file #2
+    INTARIAN_PEPPER_ROOT from file #1
     """
 
-    # ── Osmium: copied from 177226.py, fully parameterized via globals ───────────
     FAIR_VALUE = {"ASH_COATED_OSMIUM": 10_000}
     POSITION_LIMIT = {"ASH_COATED_OSMIUM": 80, "INTARIAN_PEPPER_ROOT": 80}
+
+    # OSMIUM from #2
     BASE_QUOTE_SIZE = {"ASH_COATED_OSMIUM": 40}
     VOLUME_SKEW_AGGRESSION = {"ASH_COATED_OSMIUM": 1.5}
     EMERGENCY_THRESHOLD = {"ASH_COATED_OSMIUM": 60}
@@ -20,28 +22,17 @@ class Trader:
     KILL_SWITCH_THRESHOLD = {"ASH_COATED_OSMIUM": 70}
     OSMIUM_EMA_ALPHA = 0.2
 
-    # ── Pepper (aligned with best_strat_logs; tune PEPPER_MAX_SCALP_VOLUME) ──
+    # PEPPER from #1
     PEPPER_SLOPE = 0.001
     PEPPER_POSITION_LIMIT = 80
-    PEPPER_INITIAL_ACC_THRESH = 8
-    PEPPER_SCALP_MIN_MARGIN = 4
-    PEPPER_MAX_SCALP_VOLUME = 3  # max units sold per tick into bid(s) at/above scalp threshold; sweep 1..80
-    PEPPER_RECOUP_MAX_MARGIN = -2
-    # Post-reach market making (long-biased): penny-jump both sides, favor bids.
-    PEPPER_MM_BASE_QUOTE_SIZE = 13
-    PEPPER_MM_BID_WEIGHT = 0.5
-    PEPPER_MM_MIN_LONG_POSITION = 77
-    # L2 quality gate: only penny-jump when L1 is sufficiently close to L2.
-    PEPPER_MM_L2_MAX_BID_GAP = 7  # max |L1 bid - L2 bid|
-    PEPPER_MM_L2_MAX_ASK_GAP = 5  # max |L2 ask - L1 ask|
-    # OIM Dynamic Shifts
-    PEPPER_OIM_BASE_THRESHOLD = 0
-    PEPPER_OIM_MAX_SHIFT = 2
+    PEPPER_INITIAL_ACC_THRESH = 7
+    PEPPER_SCALP_MIN_MARGIN = 3
+    PEPPER_MAX_SCALP_VOLUME = 2
+    PEPPER_RECOUP_MAX_MARGIN = 0
 
     def bid(self) -> int:
         return 15
 
-    # ── State Persistence ────────────────────────────────────
     def _load_data(self, raw: str) -> dict:
         default_data = {
             "pepper_base_estimate": None,
@@ -58,11 +49,11 @@ class Trader:
         if not isinstance(data, dict):
             return default_data
 
-        base_estimate = data.get("pepper_base_estimate")
-        if not isinstance(base_estimate, (int, float)):
-            base_estimate = None
+        pepper_base_estimate = data.get("pepper_base_estimate")
+        if not isinstance(pepper_base_estimate, (int, float)):
+            pepper_base_estimate = None
         else:
-            base_estimate = float(base_estimate)
+            pepper_base_estimate = float(pepper_base_estimate)
 
         pepper_reached_80 = data.get("pepper_reached_80", False)
         if not isinstance(pepper_reached_80, bool):
@@ -81,33 +72,17 @@ class Trader:
             osmium_last_mid = float(osmium_last_mid)
 
         return {
-            "pepper_base_estimate": base_estimate,
+            "pepper_base_estimate": pepper_base_estimate,
             "pepper_reached_80": pepper_reached_80,
             "osmium_ema": osmium_ema,
             "osmium_last_mid": osmium_last_mid,
         }
-
-    # ── Shared Helpers ───────────────────────────────────────
-    def _get_position_limit(self, product: str) -> int:
-        if product == "INTARIAN_PEPPER_ROOT":
-            return self.PEPPER_POSITION_LIMIT
-        return self.POSITION_LIMIT.get(product, 20)
 
     @staticmethod
     def _best_bid_ask(depth: OrderDepth) -> Tuple[int, int]:
         best_bid = max(depth.buy_orders.keys()) if depth.buy_orders else 0
         best_ask = min(depth.sell_orders.keys()) if depth.sell_orders else 0
         return best_bid, best_ask
-
-    @staticmethod
-    def _second_bid_ask(depth: OrderDepth) -> Tuple[int | None, int | None]:
-        bid2 = None
-        ask2 = None
-        if len(depth.buy_orders) >= 2:
-            bid2 = sorted(depth.buy_orders.keys(), reverse=True)[1]
-        if len(depth.sell_orders) >= 2:
-            ask2 = sorted(depth.sell_orders.keys())[1]
-        return bid2, ask2
 
     @staticmethod
     def _mid_price(depth: OrderDepth):
@@ -122,12 +97,20 @@ class Trader:
         return None
 
     def _buy_room(self, product: str, position: int, pending_buys: int) -> int:
-        return self._get_position_limit(product) - (position + pending_buys)
+        return self.POSITION_LIMIT.get(product, 20) - (position + pending_buys)
 
     def _sell_room(self, product: str, position: int, pending_sells: int) -> int:
-        return self._get_position_limit(product) + (position - pending_sells)
+        return self.POSITION_LIMIT.get(product, 20) + (position - pending_sells)
 
-    def _place_buy(self, orders: List[Order], product: str, price: int, desired_qty: int, position: int, pending_buys: int) -> int:
+    def _place_buy(
+        self,
+        orders: List[Order],
+        product: str,
+        price: int,
+        desired_qty: int,
+        position: int,
+        pending_buys: int,
+    ) -> int:
         room = self._buy_room(product, position, pending_buys)
         qty = min(desired_qty, room)
         if qty > 0:
@@ -135,7 +118,15 @@ class Trader:
             pending_buys += qty
         return pending_buys
 
-    def _place_sell(self, orders: List[Order], product: str, price: int, desired_qty: int, position: int, pending_sells: int) -> int:
+    def _place_sell(
+        self,
+        orders: List[Order],
+        product: str,
+        price: int,
+        desired_qty: int,
+        position: int,
+        pending_sells: int,
+    ) -> int:
         room = self._sell_room(product, position, pending_sells)
         qty = min(desired_qty, room)
         if qty > 0:
@@ -143,7 +134,16 @@ class Trader:
             pending_sells += qty
         return pending_sells
 
-    def _take_asks(self, orders: List[Order], product: str, depth: OrderDepth, max_price: int, position: int, pending_buys: int, max_total: int = None) -> int:
+    def _take_asks(
+        self,
+        orders: List[Order],
+        product: str,
+        depth: OrderDepth,
+        max_price: int,
+        position: int,
+        pending_buys: int,
+        max_total: int = None,
+    ) -> int:
         bought = 0
         for ask in sorted(depth.sell_orders):
             if ask > max_price or (max_total is not None and bought >= max_total):
@@ -161,7 +161,16 @@ class Trader:
             bought += size
         return pending_buys
 
-    def _take_bids(self, orders: List[Order], product: str, depth: OrderDepth, min_price: int, position: int, pending_sells: int, max_total: int = None) -> int:
+    def _take_bids(
+        self,
+        orders: List[Order],
+        product: str,
+        depth: OrderDepth,
+        min_price: int,
+        position: int,
+        pending_sells: int,
+        max_total: int = None,
+    ) -> int:
         sold = 0
         for bid in sorted(depth.buy_orders, reverse=True):
             if bid < min_price or (max_total is not None and sold >= max_total):
@@ -203,7 +212,7 @@ class Trader:
             return best_bid + 1
         return fallback
 
-    # ── Arbitrage & Quoting Helpers ──────────────────────────
+    # OSMIUM helpers from #2
     def _take_mispriced(
         self,
         orders: List[Order],
@@ -216,22 +225,17 @@ class Trader:
         buy_inclusive: bool = False,
         sell_inclusive: bool = False,
     ) -> Tuple[int, int]:
-        if not depth.sell_orders and not depth.buy_orders:
-            return pending_buys, pending_sells
         fair = self.FAIR_VALUE[product] if fair_value is None else fair_value
-
         for ask_price in sorted(depth.sell_orders.keys()):
             if ask_price > fair or (ask_price == fair and not buy_inclusive):
                 break
             ask_vol = -depth.sell_orders[ask_price]
             pending_buys = self._place_buy(orders, product, ask_price, ask_vol, position, pending_buys)
-
         for bid_price in sorted(depth.buy_orders.keys(), reverse=True):
             if bid_price < fair or (bid_price == fair and not sell_inclusive):
                 break
             bid_vol = depth.buy_orders[bid_price]
             pending_sells = self._place_sell(orders, product, bid_price, bid_vol, position, pending_sells)
-
         return pending_buys, pending_sells
 
     def _flatten_at_fair(
@@ -343,7 +347,7 @@ class Trader:
             return True, pending_buys, pending_sells
         return False, pending_buys, pending_sells
 
-    # ── Trending Logic (PEPPER_ROOT) ─────────────────────────
+    # PEPPER helper from #1
     def _pepper_base_estimate(self, current_mid, timestamp: int, stored_base=None):
         if isinstance(stored_base, (int, float)):
             return float(stored_base)
@@ -351,13 +355,13 @@ class Trader:
             return None
         return float(current_mid) - self.PEPPER_SLOPE * float(timestamp)
 
-    # ── Asset Execution Pipelines ────────────────────────────
+    # OSMIUM from #2
     def _trade_osmium(self, state: TradingState, fair_value, current_mid, last_mid) -> List[Order]:
-        """Osmium strategy from 177226.py."""
         product = "ASH_COATED_OSMIUM"
         depth = state.order_depths.get(product)
         if depth is None:
             return []
+
         orders: List[Order] = []
         position = state.position.get(product, 0)
         pending_buys = 0
@@ -421,9 +425,9 @@ class Trader:
             bid_signal_scale,
             ask_signal_scale,
         )
-
         return orders
 
+    # PEPPER ROOT from #1
     def _trade_pepper_root(self, state: TradingState, base_estimate, reached_80: bool) -> Tuple[List[Order], bool]:
         product = "INTARIAN_PEPPER_ROOT"
         depth = state.order_depths.get(product)
@@ -450,25 +454,6 @@ class Trader:
         pending_buys = 0
         pending_sells = 0
 
-        # OIM Calculation & Shift
-        bid_shift = 0
-        ask_shift = 0
-        best_bid, best_ask = self._best_bid_ask(depth)
-        
-        if best_bid > 0 and best_ask > 0:
-            bid_vol = depth.buy_orders.get(best_bid, 0)
-            ask_vol = -depth.sell_orders.get(best_ask, 0)
-            total_vol = bid_vol + ask_vol
-            if total_vol > 0:
-                oim = (bid_vol - ask_vol) / total_vol
-                if abs(oim) > self.PEPPER_OIM_BASE_THRESHOLD:
-                    shift_magnitude = int((abs(oim) - self.PEPPER_OIM_BASE_THRESHOLD) / (1 - self.PEPPER_OIM_BASE_THRESHOLD) * self.PEPPER_OIM_MAX_SHIFT) + 1
-                    shift_magnitude = min(shift_magnitude, self.PEPPER_OIM_MAX_SHIFT)
-                    if oim < 0: # Ask heavy -> fade bid down
-                        bid_shift = -shift_magnitude
-                    else:       # Bid heavy -> lift ask up
-                        ask_shift = shift_magnitude
-
         if reached_80 and position > 0:
             target_sell_price = fair_center + self.PEPPER_SCALP_MIN_MARGIN
             pending_sells = self._take_bids(
@@ -481,60 +466,31 @@ class Trader:
                 max_total=self.PEPPER_MAX_SCALP_VOLUME,
             )
 
-            # Long-biased penny-jump market making after reaching full inventory.
-            best_bid, best_ask = self._best_bid_ask(depth)
-            bid2, ask2 = self._second_bid_ask(depth)
-            l2_gate_ok = (
-                bid2 is not None
-                and ask2 is not None
-                and abs(best_bid - bid2) <= self.PEPPER_MM_L2_MAX_BID_GAP
-                and abs(ask2 - best_ask) <= self.PEPPER_MM_L2_MAX_ASK_GAP
-            )
-
-            if best_bid > 0 and best_ask > 0 and best_bid + 1 < best_ask and l2_gate_ok:
-                mm_bid = best_bid + 1 + bid_shift
-                mm_ask = best_ask - 1 + ask_shift
-
-                base = self.PEPPER_MM_BASE_QUOTE_SIZE
-                
-                # Skew the base quote up/down based on deviation from 80 limit
-                projected = position + pending_buys - pending_sells
-                deficit = self.PEPPER_POSITION_LIMIT - projected
-                
-                # For every unit we are short of 80, we add to bid and subtract from ask
-                bid_qty = int(round(base * self.PEPPER_MM_BID_WEIGHT)) + deficit
-                ask_qty = max(0, base - bid_qty)
-
-                # Preserve long carry: avoid adding more asks if inventory slips.
-                if projected < self.PEPPER_MM_MIN_LONG_POSITION:
-                    ask_qty = 0
-                    bid_qty = base + deficit
-                
-                # Tight bounds checking
-                room_to_buy = self._buy_room(product, position, pending_buys)
-                room_to_sell = self._sell_room(product, position, pending_sells)
-                
-                bid_qty = min(bid_qty, room_to_buy)
-                ask_qty = min(ask_qty, room_to_sell)
-
-                if bid_qty > 0:
-                    pending_buys = self._place_buy(orders, product, mm_bid, bid_qty, position, pending_buys)
-                if ask_qty > 0:
-                    pending_sells = self._place_sell(orders, product, mm_ask, ask_qty, position, pending_sells)
-
         deficit = self.PEPPER_POSITION_LIMIT - (position + pending_buys - pending_sells)
         if deficit > 0:
             if not reached_80:
                 max_buy_price = fair_center + self.PEPPER_INITIAL_ACC_THRESH
-                pending_buys = self._take_asks(orders, product, depth, max_buy_price, position, pending_buys, max_total=deficit)
+                pending_buys = self._take_asks(
+                    orders,
+                    product,
+                    depth,
+                    max_buy_price,
+                    position,
+                    pending_buys,
+                    max_total=deficit,
+                )
 
                 remaining = self.PEPPER_POSITION_LIMIT - (position + pending_buys - pending_sells)
                 if remaining > 0:
                     first_bid_qty = (remaining + 1) // 2
                     second_bid_qty = remaining - first_bid_qty
-                    pending_buys = self._place_buy(orders, product, fair_center + 2, first_bid_qty, position, pending_buys)
+                    pending_buys = self._place_buy(
+                        orders, product, fair_center + 2, first_bid_qty, position, pending_buys
+                    )
                     if second_bid_qty > 0:
-                        pending_buys = self._place_buy(orders, product, fair_center + 1, second_bid_qty, position, pending_buys)
+                        pending_buys = self._place_buy(
+                            orders, product, fair_center + 1, second_bid_qty, position, pending_buys
+                        )
             else:
                 max_buy_price = fair_center + self.PEPPER_RECOUP_MAX_MARGIN
                 pending_buys = self._take_asks(
@@ -556,13 +512,11 @@ class Trader:
 
         return orders, reached_80
 
-    # ── Main Entry ───────────────────────────────────────────
     def run(self, state: TradingState):
         data = self._load_data(state.traderData)
 
         pepper_depth = state.order_depths.get("INTARIAN_PEPPER_ROOT")
         pepper_mid = self._mid_price(pepper_depth) if pepper_depth else None
-
         pepper_base_estimate = self._pepper_base_estimate(
             pepper_mid,
             state.timestamp,
@@ -604,5 +558,4 @@ class Trader:
         data["osmium_ema"] = osmium_ema
         data["osmium_last_mid"] = osmium_mid if osmium_mid is not None else osmium_last_mid
 
-        trader_data = jsonpickle.encode(data)
-        return result, 0, trader_data
+        return result, 0, jsonpickle.encode(data)

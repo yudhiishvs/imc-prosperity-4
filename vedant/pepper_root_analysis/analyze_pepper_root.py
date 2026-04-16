@@ -139,6 +139,59 @@ def analyze_osmium_imbalance(df: pd.DataFrame):
     print(agg2)
     print("\nDone with Osmium Advanced EDA.")
 
+def analyze_pepper_detailed(df: pd.DataFrame):
+    print("\n--- INTARIAN_PEPPER_ROOT Detailed Analysis ---")
+    pepper = df[df['product'] == 'INTARIAN_PEPPER_ROOT'].copy()
+    
+    # Calculate basic clean mid
+    valid = pepper["bid_price_1"].notna() & pepper["ask_price_1"].notna()
+    pepper["raw_mid"] = np.where(valid, (pepper["bid_price_1"] + pepper["ask_price_1"]) / 2.0, np.nan)
+    pepper["clean_mid"] = pepper.groupby("day")["raw_mid"].transform(
+        lambda s: s.interpolate(method="linear", limit_direction="both")
+    )
+    pepper = pepper.dropna(subset=["clean_mid"]).copy()
+    
+    # 1. Macro Trend (Slope)
+    # Fit a linear regression on continuous_ts vs clean_mid
+    pepper['continuous_ts'] = pepper['day'] * 1_000_000 + pepper['timestamp']
+    z = np.polyfit(pepper['continuous_ts'], pepper['clean_mid'], 1)
+    print(f"Overall Linear Slope (price change per unit time): {z[0]:.6e}")
+    # Let's get the slope per timestamp unit (usually timestamp increases by 100 per tick)
+    slope_per_tick = z[0] * 100
+    print(f"Expected price change per tick (dt=100) based on slope: {slope_per_tick:.6f}")
+    
+    # 2. Spread and Volatility
+    pepper['spread'] = pepper['ask_price_1'] - pepper['bid_price_1']
+    print(f"Average Spread: {pepper['spread'].mean():.4f}")
+    pepper["mid_change"] = pepper.groupby("day")["clean_mid"].shift(-1) - pepper["clean_mid"]
+    # STD of tick-to-tick changes
+    print(f"Volatility (std of tick-to-tick mid change): {pepper['mid_change'].std():.4f}")
+    
+    # 3. Autocorrelation (Mean Reversion vs Momentum)
+    # Calculate autocorrelations for lags 1, 2, 3
+    for lag in [1, 2, 3, 5, 10]:
+        ac = pepper['mid_change'].autocorr(lag=lag)
+        print(f"Autocorrelation of mid_change (lag={lag}): {ac:.4f}")
+        
+    # 4. Order Imbalance
+    den1 = (pepper["bid_volume_1"].fillna(0) + pepper["ask_volume_1"].fillna(0)).replace(0, np.nan)
+    pepper["OIM"] = ((pepper["bid_volume_1"].fillna(0) - pepper["ask_volume_1"].fillna(0)) / den1).fillna(0.0)
+    
+    corr = pepper[['OIM', 'mid_change']].corr().iloc[0, 1]
+    print(f"Correlation between L1 Order Imbalance and Next Tick Mid-Price Change: {corr:.4f}")
+    
+    pepper['OIM_bin'] = pd.cut(pepper['OIM'], bins=[-1.01, -0.6, -0.2, 0.2, 0.6, 1.01], labels=['Strong Ask', 'Slight Ask', 'Neutral', 'Slight Bid', 'Strong Bid'])
+    agg = pepper.groupby('OIM_bin')['mid_change'].mean()
+    print("\nAverage Mid-Price Change (Next Tick) by L1 Imbalance:")
+    print(agg)
+
+    # 5. Opportunity for Scalping / Market Making
+    # How often does price revert when moving N ticks from trend?
+    pepper['trend_pred'] = z[0] * pepper['continuous_ts'] + z[1]
+    pepper['detrended_mid'] = pepper['clean_mid'] - pepper['trend_pred']
+    print(f"Std dev of detrended mid: {pepper['detrended_mid'].std():.4f}")
+
+
 def run():
     print("Loading data...")
     df = load_data()
@@ -150,6 +203,8 @@ def run():
     plot_macro_trends(df)
     
     analyze_osmium_imbalance(df)
+    
+    analyze_pepper_detailed(df)
 
 if __name__ == "__main__":
     run()
