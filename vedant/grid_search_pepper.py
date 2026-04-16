@@ -30,25 +30,22 @@ STRATEGY_PATH = REPO_ROOT / "vedant" / "strategy.py"
 # Evaluate all 3 days to reduce overfitting to any single day.
 COARSE_DAYS = ["1--2", "1--1", "1-0"]
 
-# We sweep EVERY SINGLE PARAMETER as requested, using 3 representative values each.
-ACC_THRESH_VALUES = [5, 7, 9]
-SCALP_MIN_MARGIN_VALUES = [2, 4, 8]
-MAX_SCALP_VOLUME_VALUES = [1, 3, 10]
-RECOUP_MAX_MARGIN_VALUES = [0, 2, 4]
+# Ultra-Fine Search centered on the absolute peak of the Top 100
+ACC_THRESH_VALUES = [8]
+SCALP_MIN_MARGIN_VALUES = [4]
+MAX_SCALP_VOLUME_VALUES = [3]
+RECOUP_MAX_MARGIN_VALUES = [-2]
 
-MM_BASE_QTY_VALUES = [5, 10, 20]
-MM_BID_WEIGHT_VALUES = [0.3, 0.5, 0.8]
-MM_MIN_LONG_POS_VALUES = [60, 70, 80]
+MM_BASE_QTY_VALUES = [11, 14, 17, 20]
+MM_BID_WEIGHT_VALUES = [0.40, 0.45, 0.50]
+MM_MIN_LONG_POS_VALUES = [50, 55, 60, 65]
 
-MM_L2_MAX_BID_GAP_VALUES = [3, 5, 8]
-MM_L2_MAX_ASK_GAP_VALUES = [3, 5, 8]
+MM_L2_MAX_BID_GAP_VALUES = [5, 6, 7, 8]
+MM_L2_MAX_ASK_GAP_VALUES = [5]
 
-# OIM configurations (Disabled vs Active)
-OIM_PARAMS = [
-    (1.0, 0),   # Disabled
-    (0.4, 1),   # Conservative
-    (0.2, 3),   # Aggressive
-]
+# OIM configurations
+OIM_BASE_THRESH_VALUES = [0.35, 0.50, 0.75]
+OIM_MAX_SHIFT_VALUES = [2, 3, 4]
 
 DEFAULT_WORKERS = max(1, (os.cpu_count() or 4) - 1)
 
@@ -131,7 +128,7 @@ def _run_backtest(algo_path: Path, days: list[str]) -> int:
 def _iter_params():
     seen = set()
     for (
-        acc_thresh, scalp_min, max_vol, recoup_max, mm_qty, mm_w, mm_min_pos, l2_bid_gap, l2_ask_gap, (oim_thresh, oim_max)
+        acc_thresh, scalp_min, max_vol, recoup_max, mm_qty, mm_w, mm_min_pos, l2_bid_gap, l2_ask_gap, oim_thresh, oim_max
     ) in itertools.product(
         ACC_THRESH_VALUES,
         SCALP_MIN_MARGIN_VALUES,
@@ -142,7 +139,8 @@ def _iter_params():
         MM_MIN_LONG_POS_VALUES,
         MM_L2_MAX_BID_GAP_VALUES,
         MM_L2_MAX_ASK_GAP_VALUES,
-        OIM_PARAMS,
+        OIM_BASE_THRESH_VALUES,
+        OIM_MAX_SHIFT_VALUES,
     ):
         # Deduplicate: if bid weight is 1.0, we never post asks, so min_long_pos has no effect
         if mm_w == 1.0:

@@ -6,19 +6,35 @@ import jsonpickle
 class Trader:
     """
     ============================================
-    ASH_COATED_OSMIUM: full Osmium strategy from 177226.py (EMA fair + momentum-tilted layered quoting).
+    ASH_COATED_OSMIUM: full Osmium strategy parameter-extracted (EMA fair + momentum-tilted layered quoting).
     INTARIAN_PEPPER_ROOT: detrended long bias + capped scalp sells into bid spikes above FV.
     """
 
-    # ── Osmium: copied from 177226.py, fully parameterized via globals ───────────
+    # ── Osmium: Parameterized configuration ───────────
     FAIR_VALUE = {"ASH_COATED_OSMIUM": 10_000}
     POSITION_LIMIT = {"ASH_COATED_OSMIUM": 80, "INTARIAN_PEPPER_ROOT": 80}
     BASE_QUOTE_SIZE = {"ASH_COATED_OSMIUM": 40}
     VOLUME_SKEW_AGGRESSION = {"ASH_COATED_OSMIUM": 1.5}
-    EMERGENCY_THRESHOLD = {"ASH_COATED_OSMIUM": 60}
-    EMERGENCY_TARGET = {"ASH_COATED_OSMIUM": 30}
-    KILL_SWITCH_THRESHOLD = {"ASH_COATED_OSMIUM": 70}
-    OSMIUM_EMA_ALPHA = 0.2
+    
+
+    # Fair Value
+    OSMIUM_EMA_ALPHA = 0.3
+    
+    # Inventory Safety
+    OSMIUM_EMERGENCY_THRESHOLD = 78
+    OSMIUM_EMERGENCY_TARGET = 30
+    OSMIUM_KILL_SWITCH_THRESHOLD = 75
+    
+    # Quote Structure
+    OSMIUM_INNER_QUOTE_OFFSET = 0
+    OSMIUM_OUTER_QUOTE_OFFSET = 1
+    OSMIUM_INNER_QTY_RATIO = 0.9
+    OSMIUM_DYNAMIC_OUTER_ANCHOR = True
+    
+    # Momentum Fade Skewing
+    OSMIUM_MOMENTUM_QUOTE_SHIFT = 4
+    OSMIUM_MOMENTUM_AGRESS_SCALE = 1.7
+    OSMIUM_MOMENTUM_DEFENSE_SCALE = 1.2
 
     # ── Pepper (Optimized via Grid Search) ──
     PEPPER_SLOPE = 0.001
@@ -284,25 +300,37 @@ class Trader:
         total_bid_qty = int(round(self.BASE_QUOTE_SIZE[product] * bid_scale * bid_signal_scale))
         total_ask_qty = int(round(self.BASE_QUOTE_SIZE[product] * ask_scale * ask_signal_scale))
 
-        if projected >= self.KILL_SWITCH_THRESHOLD[product]:
+        if projected >= self.OSMIUM_KILL_SWITCH_THRESHOLD:
             total_bid_qty = 0
-        elif projected <= -self.KILL_SWITCH_THRESHOLD[product]:
+        elif projected <= -self.OSMIUM_KILL_SWITCH_THRESHOLD:
             total_ask_qty = 0
 
-        inner_bid_qty = int(round(total_bid_qty * 0.7))
+        inner_bid_qty = int(round(total_bid_qty * self.OSMIUM_INNER_QTY_RATIO))
         outer_bid_qty = max(0, total_bid_qty - inner_bid_qty)
-        inner_ask_qty = int(round(total_ask_qty * 0.7))
+        inner_ask_qty = int(round(total_ask_qty * self.OSMIUM_INNER_QTY_RATIO))
         outer_ask_qty = max(0, total_ask_qty - inner_ask_qty)
 
-        inner_bid = self._inside_bid(bb, ba, 1, fair_floor - 1 + quote_shift)
+        inner_bid = self._inside_bid(bb, ba, self.OSMIUM_INNER_QUOTE_OFFSET, fair_floor - self.OSMIUM_INNER_QUOTE_OFFSET + quote_shift)
         inner_bid = min(inner_bid, fair_floor)
-        outer_bid = min(inner_bid - 2, fair_floor - 2 + quote_shift)
+        
+        if self.OSMIUM_DYNAMIC_OUTER_ANCHOR and bb is not None and ba is not None:
+            spread = max(1, ba - bb)
+            outer_bid = inner_bid - spread
+        else:
+            outer_bid = min(inner_bid - self.OSMIUM_OUTER_QUOTE_OFFSET, fair_floor - self.OSMIUM_OUTER_QUOTE_OFFSET + quote_shift)
+            
         if ba is not None:
             outer_bid = min(outer_bid, ba - 1)
 
-        inner_ask = self._inside_ask(bb, ba, 1, fair_ceil + 1 + quote_shift)
+        inner_ask = self._inside_ask(bb, ba, self.OSMIUM_INNER_QUOTE_OFFSET, fair_ceil + self.OSMIUM_INNER_QUOTE_OFFSET + quote_shift)
         inner_ask = max(inner_ask, fair_ceil)
-        outer_ask = max(inner_ask + 2, fair_ceil + 2 + quote_shift)
+        
+        if self.OSMIUM_DYNAMIC_OUTER_ANCHOR and bb is not None and ba is not None:
+            spread = max(1, ba - bb)
+            outer_ask = inner_ask + spread
+        else:
+            outer_ask = max(inner_ask + self.OSMIUM_OUTER_QUOTE_OFFSET, fair_ceil + self.OSMIUM_OUTER_QUOTE_OFFSET + quote_shift)
+            
         if bb is not None:
             outer_ask = max(outer_ask, bb + 1)
 
@@ -327,17 +355,17 @@ class Trader:
         pending_sells: int,
     ) -> Tuple[bool, int, int]:
         projected = position + pending_buys - pending_sells
-        if abs(projected) <= self.EMERGENCY_THRESHOLD[product]:
+        if abs(projected) <= self.OSMIUM_EMERGENCY_THRESHOLD:
             return False, pending_buys, pending_sells
 
         best_bid, best_ask = self._best_bid_ask(depth)
-        if projected > self.EMERGENCY_THRESHOLD[product]:
-            flatten_qty = projected - self.EMERGENCY_TARGET[product]
+        if projected > self.OSMIUM_EMERGENCY_THRESHOLD:
+            flatten_qty = projected - self.OSMIUM_EMERGENCY_TARGET
             if best_bid > 0 and flatten_qty > 0:
                 pending_sells = self._place_sell(orders, product, best_bid, flatten_qty, position, pending_sells)
             return True, pending_buys, pending_sells
-        if projected < -self.EMERGENCY_THRESHOLD[product]:
-            flatten_qty = abs(projected) - self.EMERGENCY_TARGET[product]
+        if projected < -self.OSMIUM_EMERGENCY_THRESHOLD:
+            flatten_qty = abs(projected) - self.OSMIUM_EMERGENCY_TARGET
             if best_ask > 0 and flatten_qty > 0:
                 pending_buys = self._place_buy(orders, product, best_ask, flatten_qty, position, pending_buys)
             return True, pending_buys, pending_sells
@@ -397,13 +425,13 @@ class Trader:
             return orders
 
         if last_change > 0:
-            quote_shift = -1
-            bid_signal_scale = 1.15
-            ask_signal_scale = 1.35
+            quote_shift = -self.OSMIUM_MOMENTUM_QUOTE_SHIFT
+            bid_signal_scale = self.OSMIUM_MOMENTUM_DEFENSE_SCALE
+            ask_signal_scale = self.OSMIUM_MOMENTUM_AGRESS_SCALE
         elif last_change < 0:
-            quote_shift = 1
-            bid_signal_scale = 1.35
-            ask_signal_scale = 1.15
+            quote_shift = self.OSMIUM_MOMENTUM_QUOTE_SHIFT
+            bid_signal_scale = self.OSMIUM_MOMENTUM_AGRESS_SCALE
+            ask_signal_scale = self.OSMIUM_MOMENTUM_DEFENSE_SCALE
         else:
             quote_shift = 0
             bid_signal_scale = 1.0

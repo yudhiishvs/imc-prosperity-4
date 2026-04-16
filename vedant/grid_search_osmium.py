@@ -1,130 +1,218 @@
+"""
+Parallel coarse grid search for ASH_COATED_OSMIUM parameters in vedant/updated_osmium.py.
+
+Run from repo root:
+  python3 -u ./vedant/grid_search_osmium.py
+"""
+
+from __future__ import annotations
+
 import itertools
+import os
+import random
 import re
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-STRATEGY_PATH = REPO_ROOT / "vedant" / "strategy.py"
+STRATEGY_PATH = REPO_ROOT / "vedant" / "updated_osmium.py"
+
+# --- Grid Config ---
+COARSE_DAYS = ["1--2", "1--1", "1-0"]
+
+# Excessively wide ranges to find the center
+EMA_ALPHA_VALUES = [0.1, 0.2, 0.3, 0.4]
+EMERGENCY_THRESHOLD_VALUES = [70, 74, 78]
+EMERGENCY_TARGET_VALUES = [10, 30, 50]
+KILL_SWITCH_VALUES = [55, 65, 75]
+
+INNER_QUOTE_OFFSET_VALUES = [0, 2, 4]
+OUTER_QUOTE_OFFSET_VALUES = [1, 3, 5]
+INNER_QTY_RATIO_VALUES = [0.1, 0.25, 0.5, 0.75, 0.9]
+
+MOMENTUM_QUOTE_SHIFT_VALUES = [0, 2, 4]
+MOMENTUM_AGRESS_SCALE_VALUES = [1.0, 1.35, 1.7]
+MOMENTUM_DEFENSE_SCALE_VALUES = [0.8, 1.0, 1.2]
+
+DEFAULT_WORKERS = max(1, (os.cpu_count() or 4) - 1)
 
 
 @dataclass(frozen=True)
 class OsmiumParams:
-    oim_multiplier: float
-    base_quote_size: int
-    volume_skew_aggression: float
-    emergency_threshold: int
-    emergency_target: int
-
-
-def _sub_number(name: str, value: float | int, text: str) -> str:
-    # Replace only the numeric literal after '=' on the constant line.
-    pattern = rf"(^\s*{re.escape(name)}\s*=\s*)(-?\d+(?:\.\d+)?)(\s*#.*)?$"
-    repl = rf"\g<1>{value}\g<3>"
-    out, n = re.subn(pattern, repl, text, flags=re.MULTILINE)
-    if n != 1:
-        raise ValueError(f"Expected exactly 1 match for {name}, found {n}")
-    return out
+    ema_alpha: float
+    emerge_thresh: int
+    emerge_tgt: int
+    kill_switch: int
+    inner_offset: int
+    outer_offset: int
+    inner_qty_ratio: float
+    mom_quote_shift: int
+    mom_agress: float
+    mom_defense: float
 
 
 def _patch_strategy_text(src: str, p: OsmiumParams) -> str:
+    def sub_int(name: str, value: int, text: str) -> str:
+        pattern = rf"(^\s*{re.escape(name)}\s*=\s*)(-?\d+)(\s*#.*)?$"
+        out, n = re.subn(pattern, rf"\g<1>{value}\g<3>", text, flags=re.MULTILINE)
+        if n != 1:
+            raise ValueError(f"Expected exactly 1 match for {name}, found {n}")
+        return out
+
+    def sub_float(name: str, value: float, text: str) -> str:
+        pattern = rf"(^\s*{re.escape(name)}\s*=\s*)(-?\d+(?:\.\d+)?)(\s*#.*)?$"
+        out, n = re.subn(pattern, rf"\g<1>{value:.2f}\g<3>", text, flags=re.MULTILINE)
+        if n != 1:
+            raise ValueError(f"Expected exactly 1 match for {name}, found {n}")
+        return out
+
     out = src
-    out = _sub_number("OSMIUM_OIM_MULTIPLIER", p.oim_multiplier, out)
-    out = _sub_number("OSMIUM_BASE_QUOTE_SIZE", p.base_quote_size, out)
-    out = _sub_number("OSMIUM_VOLUME_SKEW_AGGRESSION", p.volume_skew_aggression, out)
-    out = _sub_number("OSMIUM_EMERGENCY_THRESHOLD", p.emergency_threshold, out)
-    out = _sub_number("OSMIUM_EMERGENCY_TARGET", p.emergency_target, out)
+    out = sub_float("OSMIUM_EMA_ALPHA", p.ema_alpha, out)
+    out = sub_int("OSMIUM_EMERGENCY_THRESHOLD", p.emerge_thresh, out)
+    out = sub_int("OSMIUM_EMERGENCY_TARGET", p.emerge_tgt, out)
+    out = sub_int("OSMIUM_KILL_SWITCH_THRESHOLD", p.kill_switch, out)
+    out = sub_int("OSMIUM_INNER_QUOTE_OFFSET", p.inner_offset, out)
+    out = sub_int("OSMIUM_OUTER_QUOTE_OFFSET", p.outer_offset, out)
+    out = sub_float("OSMIUM_INNER_QTY_RATIO", p.inner_qty_ratio, out)
+    out = sub_int("OSMIUM_MOMENTUM_QUOTE_SHIFT", p.mom_quote_shift, out)
+    out = sub_float("OSMIUM_MOMENTUM_AGRESS_SCALE", p.mom_agress, out)
+    out = sub_float("OSMIUM_MOMENTUM_DEFENSE_SCALE", p.mom_defense, out)
     return out
 
 
-def _run_backtest(algo_path: Path) -> int:
+def _run_backtest(algo_path: Path, days: list[str]) -> int:
     cmd = [
         sys.executable,
         "-m",
         "prosperity4bt",
         str(algo_path),
-        "1--2",
-        "1--1",
-        "1-0",
+        *days,
         "--data",
         str(REPO_ROOT / "data"),
         "--no-progress",
         "--no-out",
-        "--merge-pnl",
+        "--limit",
+        "INTARIAN_PEPPER_ROOT:80",
         "--limit",
         "ASH_COATED_OSMIUM:80",
     ]
+    if len(days) > 1:
+        cmd.append("--merge-pnl")
     proc = subprocess.run(cmd, cwd=str(REPO_ROOT), text=True, capture_output=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or proc.stdout.strip() or "backtest failed")
 
-    m = re.search(r"^ASH_COATED_OSMIUM:\s*([-0-9,]+)\s*$", proc.stdout, flags=re.MULTILINE)
-    if not m:
+    matches = re.findall(r"^ASH_COATED_OSMIUM:\s*([-0-9,]+)\s*$", proc.stdout, flags=re.MULTILINE)
+    if not matches:
         raise RuntimeError("Could not find ASH_COATED_OSMIUM PnL in output:\n" + proc.stdout[-1500:])
-    return int(m.group(1).replace(",", ""))
+    
+    total_pnl = sum(int(m.replace(",", "")) for m in matches)
+    return total_pnl
 
 
-def _grid(values_mult, values_base, values_aggr, values_thresh, values_target):
-    for mult, base, aggr, thresh, tgt in itertools.product(
-        values_mult, values_base, values_aggr, values_thresh, values_target
+def _iter_params():
+    seen = set()
+    for (
+        e_alpha, e_thresh, e_tgt, k_switch, 
+        in_off, out_off, in_ratio,
+        m_shift, m_agr, m_def
+    ) in itertools.product(
+        EMA_ALPHA_VALUES,
+        EMERGENCY_THRESHOLD_VALUES,
+        EMERGENCY_TARGET_VALUES,
+        KILL_SWITCH_VALUES,
+        INNER_QUOTE_OFFSET_VALUES,
+        OUTER_QUOTE_OFFSET_VALUES,
+        INNER_QTY_RATIO_VALUES,
+        MOMENTUM_QUOTE_SHIFT_VALUES,
+        MOMENTUM_AGRESS_SCALE_VALUES,
+        MOMENTUM_DEFENSE_SCALE_VALUES,
     ):
-        if tgt >= thresh:
+        if e_tgt >= e_thresh or k_switch >= e_thresh:
             continue
-        yield OsmiumParams(mult, base, aggr, thresh, tgt)
+            
+        p = OsmiumParams(
+            e_alpha, e_thresh, e_tgt, k_switch,
+            in_off, out_off, in_ratio,
+            m_shift, m_agr, m_def
+        )
+        seen.add(p)
+        
+    unique_list = sorted(list(seen), key=lambda x: str(x))
+    
+    if len(unique_list) > 1000:
+        rng = random.Random(42)
+        unique_list = rng.sample(unique_list, 1000)
+        
+    for p in unique_list:
+        yield p
+
+
+def _eval_one(p: OsmiumParams, base_src: str, days: list[str]) -> tuple[int, OsmiumParams]:
+    with tempfile.TemporaryDirectory(prefix="osmium_grid_worker_") as tmpdir:
+        algo = Path(tmpdir) / "strategy_variant.py"
+        algo.write_text(_patch_strategy_text(base_src, p), encoding="utf-8")
+        pnl = _run_backtest(algo, days)
+    return pnl, p
 
 
 def main() -> int:
     base_src = STRATEGY_PATH.read_text(encoding="utf-8")
 
-    # Coarse grid (kept modest so you can run locally without waiting forever).
-    # You can expand these lists once you see where the optimum region is.
-    mults = [0.0, 1.0, 2.0, 3.0, 4.0, 6.0]
-    bases = [5, 9, 15, 20, 25]
-    aggrs = [0.5, 1.0, 1.5, 2.0]
-    thresholds = [60, 65, 70, 75]
-    targets = [30, 40, 50, 55]
-
-    params = list(_grid(mults, bases, aggrs, thresholds, targets))
+    params = list(_iter_params())
     total = len(params)
+    workers = DEFAULT_WORKERS
+    print(f"Coarse days: {COARSE_DAYS}", flush=True)
+    print(f"Total grid points (random subset): {total} | workers: {workers}", flush=True)
 
     results: list[tuple[int, OsmiumParams]] = []
+    done = 0
 
-    with tempfile.TemporaryDirectory(prefix="osmium_grid_") as tmpdir:
-        tmpdir = Path(tmpdir)
-        algo = tmpdir / "strategy_variant.py"
+    def format_log(p: OsmiumParams, pnl: int) -> str:
+        return (
+            f"pnl={pnl:>8}  "
+            f"OSMIUM_EMA_ALPHA={p.ema_alpha:.2f} "
+            f"OSMIUM_EMERGENCY_THRESHOLD={p.emerge_thresh} "
+            f"OSMIUM_EMERGENCY_TARGET={p.emerge_tgt} "
+            f"OSMIUM_KILL_SWITCH_THRESHOLD={p.kill_switch} "
+            f"OSMIUM_INNER_QUOTE_OFFSET={p.inner_offset} "
+            f"OSMIUM_OUTER_QUOTE_OFFSET={p.outer_offset} "
+            f"OSMIUM_INNER_QTY_RATIO={p.inner_qty_ratio:.2f} "
+            f"OSMIUM_MOMENTUM_QUOTE_SHIFT={p.mom_quote_shift} "
+            f"OSMIUM_MOMENTUM_AGRESS_SCALE={p.mom_agress:.2f} "
+            f"OSMIUM_MOMENTUM_DEFENSE_SCALE={p.mom_defense:.2f}"
+        )
 
-        for i, p in enumerate(params, start=1):
-            algo.write_text(_patch_strategy_text(base_src, p), encoding="utf-8")
-            pnl = _run_backtest(algo)
+    print(f"\nStarting evaluation of {total} parameters randomly sampled from the space using {DEFAULT_WORKERS} workers.\n", flush=True)
+
+    with ProcessPoolExecutor(max_workers=DEFAULT_WORKERS) as pool:
+        futures = {
+            pool.submit(_eval_one, p, base_src, COARSE_DAYS): p
+            for p in params
+        }
+        for fut in as_completed(futures):
+            pnl, p = fut.result()
+            done += 1
             results.append((pnl, p))
-            print(
-                f"[{i:>4}/{total}] pnl={pnl:>7}  "
-                f"mult={p.oim_multiplier:<4} base={p.base_quote_size:<2} aggr={p.volume_skew_aggression:<3} "
-                f"thr={p.emergency_threshold:<2} tgt={p.emergency_target:<2}"
-            )
+            print(f"[{done:>4}/{total}] {format_log(p, pnl)}", flush=True)
 
     results.sort(key=lambda x: x[0], reverse=True)
 
-    print("\n=== BEST (coarse) ===")
+    print("\n=== BEST (coarse) ===", flush=True)
     best_pnl, best_p = results[0]
-    print(
-        f"pnl={best_pnl}  mult={best_p.oim_multiplier} base={best_p.base_quote_size} "
-        f"aggr={best_p.volume_skew_aggression} thr={best_p.emergency_threshold} tgt={best_p.emergency_target}"
-    )
+    print(format_log(best_p, best_pnl), flush=True)
 
-    print("\n=== TOP 15 (coarse) ===")
-    for rank, (pnl, p) in enumerate(results[:15], start=1):
-        print(
-            f"{rank:>2}. pnl={pnl:>7}  mult={p.oim_multiplier:<4} base={p.base_quote_size:<2} "
-            f"aggr={p.volume_skew_aggression:<3} thr={p.emergency_threshold:<2} tgt={p.emergency_target:<2}"
-        )
+    print("\n=== TOP 100 (coarse) ===", flush=True)
+    for rank, (pnl, p) in enumerate(results[:100], start=1):
+        print(f"{rank:>2}. {format_log(p, pnl)}", flush=True)
 
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
