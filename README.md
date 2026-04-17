@@ -1,11 +1,3 @@
-I understand the IMC Prosperity 4 competition mechanics. Let me now analyze your current strategy file.
-
-Viewed updated_osmium.py:1-634
-
-Here's my high-level analysis of the two strategies:
-
----
-
 ## ASH_COATED_OSMIUM — EMA-Based Market-Making with Momentum Fade
 
 **Fair value estimation:** Uses an Exponential Moving Average (EMA) of mid-price (`α = 0.3`) as its dynamic fair value, falling back to a static `10,000` if no data exists yet.
