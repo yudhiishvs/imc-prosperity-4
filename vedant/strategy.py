@@ -44,14 +44,14 @@ class Trader:
     PEPPER_MAX_SCALP_VOLUME = 3  # max units sold per tick into bid(s) at/above scalp threshold; sweep 1..80
     PEPPER_RECOUP_MAX_MARGIN = -2
     # Post-reach market making (long-biased): penny-jump both sides, favor bids.
-    PEPPER_MM_BASE_QUOTE_SIZE = 15
-    PEPPER_MM_BID_WEIGHT = 0.5
-    PEPPER_MM_MIN_LONG_POSITION = 77
+    PEPPER_MM_BASE_QUOTE_SIZE = 17
+    PEPPER_MM_BID_WEIGHT = 0.45
+    PEPPER_MM_MIN_LONG_POSITION = 60
     # L2 quality gate: only penny-jump when L1 is sufficiently close to L2.
     PEPPER_MM_L2_MAX_BID_GAP = 6  # max |L1 bid - L2 bid|
     PEPPER_MM_L2_MAX_ASK_GAP = 5  # max |L2 ask - L1 ask|
     # OIM Dynamic Shifts
-    PEPPER_OIM_BASE_THRESHOLD = 0.0
+    PEPPER_OIM_BASE_THRESHOLD = 0.1
     PEPPER_OIM_MAX_SHIFT = 2
 
     def bid(self) -> int:

@@ -17,20 +17,20 @@ class Trader:
     BASE_QUOTE_SIZE = {"ASH_COATED_OSMIUM": 40}
 
     # Fair Value
-    OSMIUM_EMA_ALPHA = 0.3
+    OSMIUM_EMA_ALPHA = 0.25
 
     # Reservation Price (A-S Inventory Cost)
-    OSMIUM_INVENTORY_SKEW = 0.06  # ticks shift per unit of position; reservation = ema - pos * this
+    OSMIUM_INVENTORY_SKEW = 0.055  # ticks shift per unit of position; reservation = ema - pos * this
 
     # Volume Scaling (Smooth Power Curve — replaces linear skew + kill switch + emergency flatten)
-    OSMIUM_SKEW_POWER = 2.0       # shape: 1=linear, 2=quadratic, 3=cubic
+    OSMIUM_SKEW_POWER = 2.5       # shape: 1=linear, 2=quadratic, 3=cubic
     OSMIUM_ACCUM_FLOOR = 0.0      # min accumulation-side scale at position limit (0=kill switch)
     OSMIUM_UNWIND_CEILING = 2.0   # max unwind-side scale at position limit
 
     # Taking Policy
-    OSMIUM_TAKE_UNWIND_WIDTH = 1  # extra ticks past reservation to sweep on unwind side
+    OSMIUM_TAKE_UNWIND_WIDTH = 0  # extra ticks past reservation to sweep on unwind side
     OSMIUM_TAKE_ACCUM_WIDTH = 0   # ticks tighter than EMA for accumulation-side taking
-    OSMIUM_SYMMETRIC_ZONE = 15    # |position| below this → symmetric EMA-based taking
+    OSMIUM_SYMMETRIC_ZONE = 5    # |position| below this → symmetric EMA-based taking
 
     # Quote Structure
     OSMIUM_INNER_QUOTE_OFFSET = 0
