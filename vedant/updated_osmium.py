@@ -6,7 +6,8 @@ import jsonpickle
 class Trader:
     """
     ============================================
-    ASH_COATED_OSMIUM: full Osmium strategy parameter-extracted (EMA fair + momentum-tilted layered quoting).
+    ASH_COATED_OSMIUM: EMA fair + A-S reservation-price inventory layer
+                       + momentum-tilted layered quoting.
     INTARIAN_PEPPER_ROOT: detrended long bias + capped scalp sells into bid spikes above FV.
     """
 
@@ -14,23 +15,29 @@ class Trader:
     FAIR_VALUE = {"ASH_COATED_OSMIUM": 10_000}
     POSITION_LIMIT = {"ASH_COATED_OSMIUM": 80, "INTARIAN_PEPPER_ROOT": 80}
     BASE_QUOTE_SIZE = {"ASH_COATED_OSMIUM": 40}
-    VOLUME_SKEW_AGGRESSION = {"ASH_COATED_OSMIUM": 1.5}
-    
 
     # Fair Value
     OSMIUM_EMA_ALPHA = 0.3
-    
-    # Inventory Safety
-    OSMIUM_EMERGENCY_THRESHOLD = 78
-    OSMIUM_EMERGENCY_TARGET = 30
-    OSMIUM_KILL_SWITCH_THRESHOLD = 75
-    
+
+    # Reservation Price (A-S Inventory Cost)
+    OSMIUM_INVENTORY_SKEW = 0.06  # ticks shift per unit of position; reservation = ema - pos * this
+
+    # Volume Scaling (Smooth Power Curve — replaces linear skew + kill switch + emergency flatten)
+    OSMIUM_SKEW_POWER = 2.0       # shape: 1=linear, 2=quadratic, 3=cubic
+    OSMIUM_ACCUM_FLOOR = 0.0      # min accumulation-side scale at position limit (0=kill switch)
+    OSMIUM_UNWIND_CEILING = 2.0   # max unwind-side scale at position limit
+
+    # Taking Policy
+    OSMIUM_TAKE_UNWIND_WIDTH = 1  # extra ticks past reservation to sweep on unwind side
+    OSMIUM_TAKE_ACCUM_WIDTH = 0   # ticks tighter than EMA for accumulation-side taking
+    OSMIUM_SYMMETRIC_ZONE = 15    # |position| below this → symmetric EMA-based taking
+
     # Quote Structure
     OSMIUM_INNER_QUOTE_OFFSET = 0
     OSMIUM_OUTER_QUOTE_OFFSET = 1
     OSMIUM_INNER_QTY_RATIO = 0.9
     OSMIUM_DYNAMIC_OUTER_ANCHOR = True
-    
+
     # Momentum Fade Skewing
     OSMIUM_MOMENTUM_QUOTE_SHIFT = 4
     OSMIUM_MOMENTUM_AGRESS_SCALE = 1.7
@@ -293,17 +300,24 @@ class Trader:
         fair_ceil = fair_floor if fair_value == fair_floor else fair_floor + 1
 
         projected = position + pending_buys - pending_sells
-        position_ratio = projected / self.POSITION_LIMIT[product]
-        bid_scale = max(0.0, 1.0 - max(0.0, position_ratio) * self.VOLUME_SKEW_AGGRESSION[product])
-        ask_scale = max(0.0, 1.0 + min(0.0, position_ratio) * self.VOLUME_SKEW_AGGRESSION[product])
+
+        # ── A-S power-curve volume scaling ──
+        pos_limit = self.POSITION_LIMIT[product]
+        position_frac = min(abs(projected) / pos_limit, 1.0) if pos_limit > 0 else 0.0
+        skew = position_frac ** self.OSMIUM_SKEW_POWER
+
+        accum_scale = self.OSMIUM_ACCUM_FLOOR + (1.0 - self.OSMIUM_ACCUM_FLOOR) * (1.0 - skew)
+        unwind_scale = 1.0 + (self.OSMIUM_UNWIND_CEILING - 1.0) * skew
+
+        if projected > 0:
+            bid_scale, ask_scale = accum_scale, unwind_scale
+        elif projected < 0:
+            bid_scale, ask_scale = unwind_scale, accum_scale
+        else:
+            bid_scale, ask_scale = 1.0, 1.0
 
         total_bid_qty = int(round(self.BASE_QUOTE_SIZE[product] * bid_scale * bid_signal_scale))
         total_ask_qty = int(round(self.BASE_QUOTE_SIZE[product] * ask_scale * ask_signal_scale))
-
-        if projected >= self.OSMIUM_KILL_SWITCH_THRESHOLD:
-            total_bid_qty = 0
-        elif projected <= -self.OSMIUM_KILL_SWITCH_THRESHOLD:
-            total_ask_qty = 0
 
         inner_bid_qty = int(round(total_bid_qty * self.OSMIUM_INNER_QTY_RATIO))
         outer_bid_qty = max(0, total_bid_qty - inner_bid_qty)
@@ -379,9 +393,87 @@ class Trader:
             return None
         return float(current_mid) - self.PEPPER_SLOPE * float(timestamp)
 
+    # ── Reservation-Aware Taking ──────────────────────────────
+    def _take_reservation_aware(
+        self,
+        orders: List[Order],
+        product: str,
+        depth: OrderDepth,
+        position: int,
+        pending_buys: int,
+        pending_sells: int,
+        ema_fair: float,
+        reservation: float,
+    ) -> Tuple[int, int]:
+        """Position-aware taking: symmetric near flat, asymmetric at high inventory.
+
+        Near-flat (|position| < SYMMETRIC_ZONE): take everything past EMA (current behaviour).
+        At high inventory:
+          - Unwind side: take past *reservation* (more aggressive, price-aware)
+          - Accumulation side: take only clear mispricings (tighter than EMA)
+        """
+        if not depth.sell_orders and not depth.buy_orders:
+            return pending_buys, pending_sells
+
+        if abs(position) < self.OSMIUM_SYMMETRIC_ZONE:
+            # Symmetric EMA-based taking (same as old _take_mispriced inclusive)
+            for ask_price in sorted(depth.sell_orders.keys()):
+                if ask_price > ema_fair:
+                    break
+                ask_vol = -depth.sell_orders[ask_price]
+                pending_buys = self._place_buy(orders, product, ask_price, ask_vol, position, pending_buys)
+
+            for bid_price in sorted(depth.buy_orders.keys(), reverse=True):
+                if bid_price < ema_fair:
+                    break
+                bid_vol = depth.buy_orders[bid_price]
+                pending_sells = self._place_sell(orders, product, bid_price, bid_vol, position, pending_sells)
+
+            return pending_buys, pending_sells
+
+        # ── Asymmetric taking for high inventory ──
+        if position > 0:
+            # Long: unwind by selling, accumulation by buying
+            # UNWIND (sell): take bids at or above (reservation - width)
+            unwind_threshold = reservation - self.OSMIUM_TAKE_UNWIND_WIDTH
+            for bid_price in sorted(depth.buy_orders.keys(), reverse=True):
+                if bid_price < unwind_threshold:
+                    break
+                bid_vol = depth.buy_orders[bid_price]
+                pending_sells = self._place_sell(orders, product, bid_price, bid_vol, position, pending_sells)
+
+            # ACCUMULATION (buy): only take asks clearly below EMA
+            accum_threshold = ema_fair - self.OSMIUM_TAKE_ACCUM_WIDTH
+            for ask_price in sorted(depth.sell_orders.keys()):
+                if ask_price > accum_threshold:
+                    break
+                ask_vol = -depth.sell_orders[ask_price]
+                pending_buys = self._place_buy(orders, product, ask_price, ask_vol, position, pending_buys)
+
+        else:
+            # Short: unwind by buying, accumulation by selling
+            # UNWIND (buy): take asks at or below (reservation + width)
+            unwind_threshold = reservation + self.OSMIUM_TAKE_UNWIND_WIDTH
+            for ask_price in sorted(depth.sell_orders.keys()):
+                if ask_price > unwind_threshold:
+                    break
+                ask_vol = -depth.sell_orders[ask_price]
+                pending_buys = self._place_buy(orders, product, ask_price, ask_vol, position, pending_buys)
+
+            # ACCUMULATION (sell): only take bids clearly above EMA
+            accum_threshold = ema_fair + self.OSMIUM_TAKE_ACCUM_WIDTH
+            for bid_price in sorted(depth.buy_orders.keys(), reverse=True):
+                if bid_price < accum_threshold:
+                    break
+                bid_vol = depth.buy_orders[bid_price]
+                pending_sells = self._place_sell(orders, product, bid_price, bid_vol, position, pending_sells)
+
+        return pending_buys, pending_sells
+
     # ── Asset Execution Pipelines ────────────────────────────
     def _trade_osmium(self, state: TradingState, fair_value, current_mid, last_mid) -> List[Order]:
-        """Osmium strategy from 177226.py."""
+        """Osmium: EMA fair + A-S reservation-price inventory layer
+        + momentum-tilted layered quoting."""
         product = "ASH_COATED_OSMIUM"
         depth = state.order_depths.get(product)
         if depth is None:
@@ -393,37 +485,15 @@ class Trader:
         fair = self.FAIR_VALUE[product] if fair_value is None else fair_value
         last_change = 0.0 if current_mid is None or last_mid is None else current_mid - last_mid
 
-        pending_buys, pending_sells = self._take_mispriced(
-            orders,
-            product,
-            depth,
-            position,
-            pending_buys,
-            pending_sells,
-            fair_value=fair,
-            buy_inclusive=True,
-            sell_inclusive=True,
+        # ── Step 1: Reservation-aware taking ──
+        reservation = fair - position * self.OSMIUM_INVENTORY_SKEW
+        pending_buys, pending_sells = self._take_reservation_aware(
+            orders, product, depth, position,
+            pending_buys, pending_sells,
+            ema_fair=fair, reservation=reservation,
         )
-        pending_buys, pending_sells = self._flatten_at_fair(
-            orders,
-            product,
-            depth,
-            position,
-            pending_buys,
-            pending_sells,
-            fair_value=fair,
-        )
-        triggered, pending_buys, pending_sells = self._emergency_flatten(
-            orders,
-            product,
-            depth,
-            position,
-            pending_buys,
-            pending_sells,
-        )
-        if triggered:
-            return orders
 
+        # ── Step 2: Momentum overlay (unchanged) ──
         if last_change > 0:
             quote_shift = -self.OSMIUM_MOMENTUM_QUOTE_SHIFT
             bid_signal_scale = self.OSMIUM_MOMENTUM_DEFENSE_SCALE
@@ -437,6 +507,7 @@ class Trader:
             bid_signal_scale = 1.0
             ask_signal_scale = 1.0
 
+        # ── Step 3: Penny-jump quotes with power-curve volume skew ──
         self._penny_jump_quotes(
             orders,
             product,
