@@ -1,0 +1,228 @@
+# EDA run: 2026-04-18T16:25:44.694666
+
+Loading Round 2 data...
+  prices=59,900  trades=2,391  merged=2,391
+
+======================================================================
+PROSPERITY 4  ROUND 2 — EDA STATS
+======================================================================
+
+Prices shape : (59900, 18)
+Trades shape : (2391, 8)
+Prices cols  : ['day', 'timestamp', 'product', 'bid_price_1', 'bid_volume_1', 'bid_price_2', 'bid_volume_2', 'bid_price_3', 'bid_volume_3', 'ask_price_1', 'ask_volume_1', 'ask_price_2', 'ask_volume_2', 'ask_price_3', 'ask_volume_3', 'mid_price', 'profit_and_loss', 'global_ts']
+Trades cols  : ['timestamp', 'buyer', 'seller', 'product', 'currency', 'price', 'quantity', 'day']
+
+────────────────────────────────────────────────────────────
+PRODUCT: ASH_COATED_OSMIUM  (ASH)
+────────────────────────────────────────────────────────────
+  Price rows : 29947
+  Trade rows : 1395
+
+  Mid Price (all days):
+count    29947.000000
+mean     10000.879420
+std          5.104032
+min       9979.000000
+25%       9998.000000
+50%      10001.000000
+75%      10004.000000
+max      10023.000000
+
+  Day -1: mean=10000.83  std=4.4669  min=9981.00  max=10020.00  range=39.00
+
+  Day +0: mean=10001.61  std=5.6596  min=9979.00  max=10023.00  range=44.00
+
+  Day +1: mean=10000.21  std=5.0187  min=9980.00  max=10019.00  range=39.00
+
+  Trade price:
+count     1395.000000
+mean     10000.650896
+std          9.351995
+min       9979.000000
+25%       9993.000000
+50%      10000.000000
+75%      10009.000000
+max      10020.000000
+
+  Trade quantity:
+count    1395.000000
+mean        5.108961
+std         2.239184
+min         2.000000
+25%         3.000000
+50%         5.000000
+75%         6.000000
+max        10.000000
+  Buyers: {'MARKET': 1395}
+  Sellers: {'MARKET': 1395}
+
+  Bid-Ask Spread:
+count    27708.000000
+mean        16.234156
+std          2.520303
+min          5.000000
+25%         16.000000
+50%         16.000000
+75%         18.000000
+max         22.000000
+  Day -1: mean=16.22  median=16.00
+  Day +0: mean=16.25  median=16.00
+  Day +1: mean=16.23  median=16.00
+
+  Day -1 Returns: mean=0.0011  std=3.6953  skew=0.048  kurt=3.190  normality_p=4.15e-52
+           ACF: lag1=-0.5063  lag2=0.0189  lag5=0.0065
+
+  Day +0 Returns: mean=0.0005  std=3.6858  skew=-0.015  kurt=3.262  normality_p=1.47e-51
+           ACF: lag1=-0.5064  lag2=0.0141  lag5=-0.0038
+
+  Day +1 Returns: mean=-0.0015  std=3.6853  skew=0.001  kurt=3.031  normality_p=1.23e-51
+           ACF: lag1=-0.4905  lag2=-0.0050  lag5=-0.0401
+
+────────────────────────────────────────────────────────────
+PRODUCT: INTARIAN_PEPPER_ROOT  (PEPPER)
+────────────────────────────────────────────────────────────
+  Price rows : 29953
+  Trade rows : 996
+
+  Mid Price (all days):
+count    29953.000000
+mean     12499.915785
+std        866.052431
+min      10998.000000
+25%      11750.000000
+50%      12500.000000
+75%      13250.500000
+max      14003.000000
+
+  Day -1: mean=11500.12  std=288.6535  min=10998.00  max=12001.50  range=1003.50
+
+  Day +0: mean=12499.87  std=288.6096  min=11996.00  max=13008.00  range=1012.00
+
+  Day +1: mean=13500.06  std=288.7464  min=12995.00  max=14003.00  range=1008.00
+
+  Trade price:
+count      996.000000
+mean     12535.993976
+std        860.449285
+min      10996.000000
+25%      11787.000000
+50%      12560.500000
+75%      13289.750000
+max      13999.000000
+
+  Trade quantity:
+count    996.000000
+mean       5.053213
+std        1.544704
+min        3.000000
+25%        4.000000
+50%        5.000000
+75%        6.000000
+max        8.000000
+  Buyers: {'MARKET': 996}
+  Sellers: {'MARKET': 996}
+
+  Bid-Ask Spread:
+count    27724.000000
+mean        14.121664
+std          2.788202
+min          2.000000
+25%         13.000000
+50%         14.000000
+75%         15.000000
+max         22.000000
+  Day -1: mean=13.07  median=13.00
+  Day +0: mean=14.12  median=14.00
+  Day +1: mean=15.18  median=15.00
+
+  Day -1 Returns: mean=0.0999  std=3.1079  skew=0.054  kurt=2.983  normality_p=3.86e-51
+           ACF: lag1=-0.4979  lag2=-0.0074  lag5=-0.0191
+
+  Day +0 Returns: mean=0.1003  std=3.3162  skew=-0.015  kurt=2.830  normality_p=2.85e-52
+           ACF: lag1=-0.4889  lag2=-0.0138  lag5=-0.0191
+
+  Day +1 Returns: mean=0.1001  std=3.5781  skew=-0.016  kurt=3.005  normality_p=6.87e-51
+           ACF: lag1=-0.5084  lag2=0.0312  lag5=-0.0081
+
+────────────────────────────────────────────────────────────
+ORDER BOOK DEPTH
+────────────────────────────────────────────────────────────
+
+  ASH:
+    L1: presence=96.2%  bid_vol_mean=14.2  ask_vol_mean=14.2
+    L2: presence=65.2%  bid_vol_mean=24.5  ask_vol_mean=24.4
+    L3: presence=2.4%  bid_vol_mean=24.8  ask_vol_mean=25.0
+    Imbalance: mean=0.0015  std=0.2317
+    WMid−Mid:  mean=-0.0010  std=1.7863
+
+  PEPPER:
+    L1: presence=96.4%  bid_vol_mean=11.6  ask_vol_mean=11.6
+    L2: presence=64.7%  bid_vol_mean=19.8  ask_vol_mean=19.8
+    L3: presence=1.4%  bid_vol_mean=20.0  ask_vol_mean=20.0
+    Imbalance: mean=0.0003  std=0.1920
+    WMid−Mid:  mean=0.0025  std=1.4844
+
+────────────────────────────────────────────────────────────
+TREND ANALYSIS
+────────────────────────────────────────────────────────────
+
+  ASH:
+    Day -1: slope=-0.000053/tick  total_drift=-0.53  R²=0.0012  p=6.22e-04
+    Day +0: slope=0.000157/tick  total_drift=1.57  R²=0.0064  p=1.09e-15
+    Day +1: slope=-0.000714/tick  total_drift=-7.12  R²=0.1679  p=0.00e+00
+
+  PEPPER:
+    Day -1: slope=0.100115/tick  total_drift=999.75  R²=0.9999  p=0.00e+00
+    Day +0: slope=0.100149/tick  total_drift=999.59  R²=0.9999  p=0.00e+00
+    Day +1: slope=0.100176/tick  total_drift=1000.06  R²=0.9999  p=0.00e+00
+
+────────────────────────────────────────────────────────────
+MEAN REVERSION (delta ~ lagged level)
+────────────────────────────────────────────────────────────
+
+  ASH:
+    Day -1: coeff=-0.342391  p=0.00e+00  half-life=2.0 ticks
+    Day +0: coeff=-0.212011  p=3.98e-245  half-life=3.3 ticks
+    Day +1: coeff=-0.269664  p=0.00e+00  half-life=2.6 ticks
+
+  PEPPER:
+    Day -1: coeff=-0.000058  p=5.93e-01  half-life=12049.6 ticks
+    Day +0: coeff=-0.000067  p=5.62e-01  half-life=10381.4 ticks
+    Day +1: coeff=-0.000077  p=5.34e-01  half-life=8982.6 ticks
+
+────────────────────────────────────────────────────────────
+TRADE PRICE vs MID PRICE
+────────────────────────────────────────────────────────────
+
+  ASH: mean_dev=-0.223  std=8.038  |dev|_mean=7.773
+    Day -1: mean=-0.342  std=8.129  pct_outside_half_spread=30.1%
+    Day +0: mean=-0.252  std=8.000  pct_outside_half_spread=27.0%
+    Day +1: mean=-0.076  std=8.000  pct_outside_half_spread=27.5%
+
+  PEPPER: mean_dev=0.054  std=6.117  |dev|_mean=5.424
+    Day -1: mean=0.202  std=5.704  pct_outside_half_spread=21.5%
+    Day +0: mean=0.038  std=6.150  pct_outside_half_spread=23.2%
+    Day +1: mean=-0.078  std=6.485  pct_outside_half_spread=18.6%
+
+Generating plots...
+  saved → 01_midprice_timeseries.png
+  saved → 02_midprice_distributions.png
+  saved → 03_returns_distributions.png
+  saved → 04_spread_distributions.png
+  saved → 05_order_imbalance.png
+  saved → 06_pepper_detrended.png
+  saved → 07_ash_midprice_fairvalue.png
+  saved → 08_return_autocorrelation.png
+  saved → 09_trade_activity.png
+  saved → 10_qq_plots.png
+  saved → 11_rolling_volatility.png
+  saved → 12_pepper_full_trend.png
+  saved → 13_vwap_analysis.png
+  saved → 14_orderbook_depth_ASH.png
+  saved → 14_orderbook_depth_PEPPER.png
+  saved → 15_imbalance_predictive.png
+  saved → 16_ash_deviation_fairvalue.png
+  saved → A_inefficiency_map.png
+  saved → B_spread_vs_trades.png
+
+All output → /Users/visheshng/Documents/Code/UMDClubs/Apex/IMC-Prosperity/prosperity4/imc-prosperity-4/round2/eda/eda_output
