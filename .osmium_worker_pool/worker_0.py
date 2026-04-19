@@ -17,17 +17,17 @@ class Trader:
     OSMIUM_FAIR_VALUE = 10_000      # hardcoded constant, not tuned
     
     # Quote structure
-    OSMIUM_BASE_QUOTE_SIZE = 39     # base size per side of the book
+    OSMIUM_BASE_QUOTE_SIZE = 18     # base size per side of the book
 
     # Price-deviation volume skew
-    OSMIUM_DEV_SCALE = 4.233          # normalization: deviation of this many ticks = "fully skewed"
-    OSMIUM_DEV_POWER = 0.892          # shape of skew curve: 1=linear, 2=quadratic, 3=cubic, etc.
-    OSMIUM_UNWIND_CEILING = 3.12     # max volume multiplier on the side moving TOWARD 10k
-    OSMIUM_ACCUM_FLOOR = 0.5       # min volume multiplier on the side moving AWAY from 10k
+    OSMIUM_DEV_SCALE = 7.1345          # normalization: deviation of this many ticks = "fully skewed"
+    OSMIUM_DEV_POWER = 1.2371          # shape of skew curve: 1=linear, 2=quadratic, 3=cubic, etc.
+    OSMIUM_UNWIND_CEILING = 1.6489     # max volume multiplier on the side moving TOWARD 10k
+    OSMIUM_ACCUM_FLOOR = 0.7668       # min volume multiplier on the side moving AWAY from 10k
 
     # Inventory gate (hysteresis — pulls all accumulation-side quotes when deeply offside)
     OSMIUM_KILL_QUOTE_THRESHOLD = 80  # |pos| at which we PULL all accumulation-side quotes
-    OSMIUM_RESUME_QUOTE_THRESHOLD = 79 # |pos| at which we RESUME quoting both sides again
+    OSMIUM_RESUME_QUOTE_THRESHOLD = 73 # |pos| at which we RESUME quoting both sides again
 
     # ── Pepper (Optimized via Grid Search) ──
     PEPPER_SLOPE = 0.001

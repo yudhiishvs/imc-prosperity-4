@@ -6,53 +6,61 @@ import jsonpickle
 class Trader:
     """
     ============================================
-    ASH_COATED_OSMIUM: full Osmium strategy parameter-extracted (EMA fair + momentum-tilted layered quoting).
+    ASH_COATED_OSMIUM: Static-fair penny-jump MM with OIM signal.
+                       No EMA. No panic flattening. Follow order imbalance.
     INTARIAN_PEPPER_ROOT: detrended long bias + capped scalp sells into bid spikes above FV.
     """
 
-    # ── Osmium: Parameterized configuration ───────────
-    FAIR_VALUE = {"ASH_COATED_OSMIUM": 10_000}
-    POSITION_LIMIT = {"ASH_COATED_OSMIUM": 80, "INTARIAN_PEPPER_ROOT": 80}
-    BASE_QUOTE_SIZE = {"ASH_COATED_OSMIUM": 40}
-    VOLUME_SKEW_AGGRESSION = {"ASH_COATED_OSMIUM": 1.5}
+    # ── Osmium: OIM-Led Regime Discovery MM ───────────────
+    OSMIUM_FAIR_VALUE = 10004
+    OSMIUM_POSITION_LIMIT = 80
     
+    # OSMIUM_BASE_QUOTE_SIZE = 48
+    # OSMIUM_VOLUME_SKEW_AGGRESSION = 0.590
+    # OSMIUM_KILL_SWITCH_THRESHOLD = 78
+    
+    # OSMIUM_OIM_THRESHOLD = 0.900
+    # OSMIUM_OIM_SHIFT = 1
+    # OSMIUM_OIM_EDGE_SCALE = 1.000
+    # OSMIUM_OIM_FADE_SCALE = 1.000
 
-    # Fair Value
-    OSMIUM_EMA_ALPHA = 0.3
+    # OSMIUM_INNER_OFFSET = 3
+    # OSMIUM_OUTER_OFFSET = 26
     
-    # Inventory Safety
-    OSMIUM_EMERGENCY_THRESHOLD = 78
-    OSMIUM_EMERGENCY_TARGET = 30
-    OSMIUM_KILL_SWITCH_THRESHOLD = 75
+    # # Continuous Risk Multipliers
+    # OSMIUM_FV_TETHER_SCALE = 0.050
+    # OSMIUM_OIM_TAKE_SCALE = 1.000
     
-    # Quote Structure
-    OSMIUM_INNER_QUOTE_OFFSET = 0
-    OSMIUM_OUTER_QUOTE_OFFSET = 1
-    OSMIUM_INNER_QTY_RATIO = 0.9
-    OSMIUM_DYNAMIC_OUTER_ANCHOR = True
-    
-    # Momentum Fade Skewing
-    OSMIUM_MOMENTUM_QUOTE_SHIFT = 4
-    OSMIUM_MOMENTUM_AGRESS_SCALE = 1.7
-    OSMIUM_MOMENTUM_DEFENSE_SCALE = 1.2
+    OSMIUM_INNER_OFFSET                 =        5
+    OSMIUM_OUTER_OFFSET                 =        8
+    OSMIUM_VOLUME_SKEW_AGGRESSION       =      1.275
+    OSMIUM_OIM_SHIFT                    =        0
+    OSMIUM_BASE_QUOTE_SIZE              =       51
+    OSMIUM_KILL_SWITCH_THRESHOLD        =       80
+    OSMIUM_OIM_THRESHOLD                =      0.8
+    OSMIUM_OIM_FADE_SCALE               =       1.15
+    OSMIUM_OIM_EDGE_SCALE               =      2.055
+    OSMIUM_OIM_TAKE_SCALE               =      0.083
+    OSMIUM_FV_TETHER_SCALE              =      0.093
 
-    # ── Pepper (Optimized via Grid Search) ──
+
+
+    # ── Pepper (Optimized via Grid Search — UNTOUCHED) ──
     PEPPER_SLOPE = 0.001
     PEPPER_POSITION_LIMIT = 80
     PEPPER_INITIAL_ACC_THRESH = 8
     PEPPER_SCALP_MIN_MARGIN = 4
-    PEPPER_MAX_SCALP_VOLUME = 3  # max units sold per tick into bid(s) at/above scalp threshold; sweep 1..80
+    PEPPER_MAX_SCALP_VOLUME = 3
     PEPPER_RECOUP_MAX_MARGIN = -2
-    # Post-reach market making (long-biased): penny-jump both sides, favor bids.
     PEPPER_MM_BASE_QUOTE_SIZE = 17
     PEPPER_MM_BID_WEIGHT = 0.45
     PEPPER_MM_MIN_LONG_POSITION = 60
-    # L2 quality gate: only penny-jump when L1 is sufficiently close to L2.
-    PEPPER_MM_L2_MAX_BID_GAP = 6  # max |L1 bid - L2 bid|
-    PEPPER_MM_L2_MAX_ASK_GAP = 5  # max |L2 ask - L1 ask|
-    # OIM Dynamic Shifts
+    PEPPER_MM_L2_MAX_BID_GAP = 6
+    PEPPER_MM_L2_MAX_ASK_GAP = 5
     PEPPER_OIM_BASE_THRESHOLD = 0.1
     PEPPER_OIM_MAX_SHIFT = 2
+
+    POSITION_LIMIT = {"ASH_COATED_OSMIUM": 80, "INTARIAN_PEPPER_ROOT": 80}
 
     def bid(self) -> int:
         return 15
@@ -62,8 +70,6 @@ class Trader:
         default_data = {
             "pepper_base_estimate": None,
             "pepper_reached_80": False,
-            "osmium_ema": None,
-            "osmium_last_mid": None,
         }
         if not raw:
             return default_data
@@ -84,30 +90,18 @@ class Trader:
         if not isinstance(pepper_reached_80, bool):
             pepper_reached_80 = False
 
-        osmium_ema = data.get("osmium_ema")
-        if not isinstance(osmium_ema, (int, float)):
-            osmium_ema = None
-        else:
-            osmium_ema = float(osmium_ema)
-
-        osmium_last_mid = data.get("osmium_last_mid")
-        if not isinstance(osmium_last_mid, (int, float)):
-            osmium_last_mid = None
-        else:
-            osmium_last_mid = float(osmium_last_mid)
-
         return {
             "pepper_base_estimate": base_estimate,
             "pepper_reached_80": pepper_reached_80,
-            "osmium_ema": osmium_ema,
-            "osmium_last_mid": osmium_last_mid,
         }
 
     # ── Shared Helpers ───────────────────────────────────────
     def _get_position_limit(self, product: str) -> int:
         if product == "INTARIAN_PEPPER_ROOT":
             return self.PEPPER_POSITION_LIMIT
-        return self.POSITION_LIMIT.get(product, 20)
+        if product == "ASH_COATED_OSMIUM":
+            return self.OSMIUM_POSITION_LIMIT
+        return 20
 
     @staticmethod
     def _best_bid_ask(depth: OrderDepth) -> Tuple[int, int]:
@@ -135,6 +129,15 @@ class Trader:
             return float(best_bid)
         if best_ask is not None:
             return float(best_ask)
+        return None
+
+    @staticmethod
+    def _two_sided_mid(depth: OrderDepth):
+        """Mid price only when BOTH bid and ask exist. Returns None on one-sided books."""
+        best_bid = max(depth.buy_orders) if depth.buy_orders else None
+        best_ask = min(depth.sell_orders) if depth.sell_orders else None
+        if best_bid is not None and best_ask is not None:
+            return (best_bid + best_ask) / 2.0
         return None
 
     def _buy_room(self, product: str, position: int, pending_buys: int) -> int:
@@ -195,262 +198,143 @@ class Trader:
             sold += size
         return pending_sells
 
-    def _inside_bid(self, best_bid, best_ask, inside_ticks: int, fallback: int) -> int:
-        if best_bid is not None and best_ask is not None:
-            spread_space = max(0, best_ask - best_bid - 1)
-            if spread_space > 0:
-                return best_bid + min(inside_ticks, spread_space)
-            return best_bid
-        if best_bid is not None:
-            return best_bid
-        if best_ask is not None:
-            return best_ask - 1
-        return fallback
+    # ── Osmium Execution Pipeline ────────────────────────────
+    def _trade_osmium(self, state: TradingState) -> List[Order]:
+        """OIM-Led Regime Discovery MM. Centers around localized mid_price with FV tethering."""
+        product = "ASH_COATED_OSMIUM"
+        depth = state.order_depths.get(product)
+        if depth is None:
+            return []
 
-    def _inside_ask(self, best_bid, best_ask, inside_ticks: int, fallback: int) -> int:
-        if best_bid is not None and best_ask is not None:
-            spread_space = max(0, best_ask - best_bid - 1)
-            if spread_space > 0:
-                return best_ask - min(inside_ticks, spread_space)
-            return best_ask
-        if best_ask is not None:
-            return best_ask
-        if best_bid is not None:
-            return best_bid + 1
-        return fallback
+        orders: List[Order] = []
+        position = state.position.get(product, 0)
+        pending_buys = 0
+        pending_sells = 0
 
-    # ── Arbitrage & Quoting Helpers ──────────────────────────
-    def _take_mispriced(
-        self,
-        orders: List[Order],
-        product: str,
-        depth: OrderDepth,
-        position: int,
-        pending_buys: int,
-        pending_sells: int,
-        fair_value=None,
-        buy_inclusive: bool = False,
-        sell_inclusive: bool = False,
-    ) -> Tuple[int, int]:
-        if not depth.sell_orders and not depth.buy_orders:
-            return pending_buys, pending_sells
-        fair = self.FAIR_VALUE[product] if fair_value is None else fair_value
-
-        for ask_price in sorted(depth.sell_orders.keys()):
-            if ask_price > fair or (ask_price == fair and not buy_inclusive):
-                break
-            ask_vol = -depth.sell_orders[ask_price]
-            pending_buys = self._place_buy(orders, product, ask_price, ask_vol, position, pending_buys)
-
-        for bid_price in sorted(depth.buy_orders.keys(), reverse=True):
-            if bid_price < fair or (bid_price == fair and not sell_inclusive):
-                break
-            bid_vol = depth.buy_orders[bid_price]
-            pending_sells = self._place_sell(orders, product, bid_price, bid_vol, position, pending_sells)
-
-        return pending_buys, pending_sells
-
-    def _flatten_at_fair(
-        self,
-        orders: List[Order],
-        product: str,
-        depth: OrderDepth,
-        position: int,
-        pending_buys: int,
-        pending_sells: int,
-        fair_value=None,
-    ) -> Tuple[int, int]:
-        fair = self.FAIR_VALUE[product] if fair_value is None else fair_value
-        fair_price = int(round(fair))
-        projected = position + pending_buys - pending_sells
-        if projected > 0 and fair_price in depth.buy_orders:
-            bid_vol = depth.buy_orders[fair_price]
-            flatten_qty = min(bid_vol, projected)
-            pending_sells = self._place_sell(orders, product, fair_price, flatten_qty, position, pending_sells)
-        elif projected < 0 and fair_price in depth.sell_orders:
-            ask_vol = -depth.sell_orders[fair_price]
-            flatten_qty = min(ask_vol, abs(projected))
-            pending_buys = self._place_buy(orders, product, fair_price, flatten_qty, position, pending_buys)
-        return pending_buys, pending_sells
-
-    def _penny_jump_quotes(
-        self,
-        orders: List[Order],
-        product: str,
-        depth: OrderDepth,
-        position: int,
-        pending_buys: int,
-        pending_sells: int,
-        fair_value,
-        quote_shift: int,
-        bid_signal_scale: float,
-        ask_signal_scale: float,
-    ) -> Tuple[int, int]:
+        # Stage 1: Market State Analysis 
         best_bid, best_ask = self._best_bid_ask(depth)
-        bb = best_bid if best_bid != 0 else None
-        ba = best_ask if best_ask != 0 else None
-        fair_floor = int(fair_value)
-        fair_ceil = fair_floor if fair_value == fair_floor else fair_floor + 1
+        current_mid = self._two_sided_mid(depth)
+        
+        if current_mid is None:
+            if best_bid > 0:
+                current_mid = best_bid + self.OSMIUM_OUTER_OFFSET
+            elif best_ask > 0:
+                current_mid = best_ask - self.OSMIUM_OUTER_OFFSET
+            else:
+                current_mid = self.OSMIUM_FAIR_VALUE
+                
+        # Stage 2: Calculate Leading Indicator (OIM)
+        # Empirical Data: L1 is highly predictive (99% hit rate h=5). L2/L3 is spoofed noise.
+        oim = 0.0
+        bid_vol = depth.buy_orders.get(best_bid, 0)
+        ask_vol = abs(depth.sell_orders.get(best_ask, 0))
+            
+        total_vol = bid_vol + ask_vol
+        if total_vol > 0:
+            oim = (bid_vol - ask_vol) / total_vol
 
+        # Global toggle mapping: disable OIM completely if variables are set to 0.
+        if self.OSMIUM_OIM_THRESHOLD <= 0.0 or (self.OSMIUM_OIM_EDGE_SCALE == 0.0 and self.OSMIUM_OIM_FADE_SCALE == 0.0):
+            oim = 0.0
+
+        # Stage 3: Trend Taking (Toxic Liquidator)
+        if abs(oim) >= self.OSMIUM_OIM_THRESHOLD and self.OSMIUM_OIM_TAKE_SCALE > 0:
+            take_fraction = min(1.0, abs(oim) * self.OSMIUM_OIM_TAKE_SCALE)
+            # NEVER cross the spread unconditionally. Only take if quote provides strict mathematical FV edge.
+            if oim > 0 and best_ask > 0 and best_ask < self.OSMIUM_FAIR_VALUE:
+                room = self._buy_room(product, position, pending_buys)
+                desired_take = int(round(abs(depth.sell_orders[best_ask]) * take_fraction))
+                take_vol = min(desired_take, room)
+                if take_vol > 0:
+                    pending_buys = self._place_buy(orders, product, best_ask, take_vol, position, pending_buys)
+            elif oim < 0 and best_bid > 0 and best_bid > self.OSMIUM_FAIR_VALUE:
+                room = self._sell_room(product, position, pending_sells)
+                desired_take = int(round(depth.buy_orders[best_bid] * take_fraction))
+                take_vol = min(desired_take, room)
+                if take_vol > 0:
+                    pending_sells = self._place_sell(orders, product, best_bid, take_vol, position, pending_sells)
+                
+        # Stage 4: Quote Parameterization & Skew
         projected = position + pending_buys - pending_sells
-        position_ratio = projected / self.POSITION_LIMIT[product]
-        bid_scale = max(0.0, 1.0 - max(0.0, position_ratio) * self.VOLUME_SKEW_AGGRESSION[product])
-        ask_scale = max(0.0, 1.0 + min(0.0, position_ratio) * self.VOLUME_SKEW_AGGRESSION[product])
+        pos_ratio = projected / self.OSMIUM_POSITION_LIMIT
+        
+        # Weak Gravity Tether to Global FV shifts the effective inventory perception
+        tether_skew = (current_mid - self.OSMIUM_FAIR_VALUE) * self.OSMIUM_FV_TETHER_SCALE
+        effective_pos_ratio = pos_ratio + tether_skew
+            
+        bid_scale = max(0.0, 1.0 - max(0.0, effective_pos_ratio) * self.OSMIUM_VOLUME_SKEW_AGGRESSION)
+        ask_scale = max(0.0, 1.0 + min(0.0, effective_pos_ratio) * self.OSMIUM_VOLUME_SKEW_AGGRESSION)
+        
+        bid_shift = 0
+        ask_shift = 0
+        bid_signal_scale = 1.0
+        ask_signal_scale = 1.0
 
-        total_bid_qty = int(round(self.BASE_QUOTE_SIZE[product] * bid_scale * bid_signal_scale))
-        total_ask_qty = int(round(self.BASE_QUOTE_SIZE[product] * ask_scale * ask_signal_scale))
+        if oim > self.OSMIUM_OIM_THRESHOLD:
+            bid_shift = self.OSMIUM_OIM_SHIFT
+            ask_shift = self.OSMIUM_OIM_SHIFT
+            bid_signal_scale = self.OSMIUM_OIM_EDGE_SCALE
+            ask_signal_scale = self.OSMIUM_OIM_FADE_SCALE
+        elif oim < -self.OSMIUM_OIM_THRESHOLD:
+            bid_shift = -self.OSMIUM_OIM_SHIFT
+            ask_shift = -self.OSMIUM_OIM_SHIFT
+            bid_signal_scale = self.OSMIUM_OIM_FADE_SCALE
+            ask_signal_scale = self.OSMIUM_OIM_EDGE_SCALE
+
+        total_bid_qty = int(round(self.OSMIUM_BASE_QUOTE_SIZE * bid_scale * bid_signal_scale))
+        total_ask_qty = int(round(self.OSMIUM_BASE_QUOTE_SIZE * ask_scale * ask_signal_scale))
 
         if projected >= self.OSMIUM_KILL_SWITCH_THRESHOLD:
             total_bid_qty = 0
         elif projected <= -self.OSMIUM_KILL_SWITCH_THRESHOLD:
             total_ask_qty = 0
 
-        inner_bid_qty = int(round(total_bid_qty * self.OSMIUM_INNER_QTY_RATIO))
-        outer_bid_qty = max(0, total_bid_qty - inner_bid_qty)
-        inner_ask_qty = int(round(total_ask_qty * self.OSMIUM_INNER_QTY_RATIO))
-        outer_ask_qty = max(0, total_ask_qty - inner_ask_qty)
+        import math
+        mm_bid = math.floor(current_mid) - self.OSMIUM_INNER_OFFSET + bid_shift
+        mm_ask = math.ceil(current_mid) + self.OSMIUM_INNER_OFFSET + ask_shift
 
-        inner_bid = self._inside_bid(bb, ba, self.OSMIUM_INNER_QUOTE_OFFSET, fair_floor - self.OSMIUM_INNER_QUOTE_OFFSET + quote_shift)
-        inner_bid = min(inner_bid, fair_floor)
+        # L1/L2 Penny Jumping Component
+        bid1, ask1 = best_bid, best_ask
+        bid2, ask2 = self._second_bid_ask(depth)
         
-        if self.OSMIUM_DYNAMIC_OUTER_ANCHOR and bb is not None and ba is not None:
-            spread = max(1, ba - bb)
-            outer_bid = inner_bid - spread
-        else:
-            outer_bid = min(inner_bid - self.OSMIUM_OUTER_QUOTE_OFFSET, fair_floor - self.OSMIUM_OUTER_QUOTE_OFFSET + quote_shift)
-            
-        if ba is not None:
-            outer_bid = min(outer_bid, ba - 1)
+        max_acceptable_bid = math.floor(self.OSMIUM_FAIR_VALUE) - 1 + bid_shift
+        min_acceptable_ask = math.ceil(self.OSMIUM_FAIR_VALUE) + 1 + ask_shift
 
-        inner_ask = self._inside_ask(bb, ba, self.OSMIUM_INNER_QUOTE_OFFSET, fair_ceil + self.OSMIUM_INNER_QUOTE_OFFSET + quote_shift)
-        inner_ask = max(inner_ask, fair_ceil)
+        # Try to aggressively penny-jump L1. If L1 violates our bounds, fall back to capturing L2 priority.
+        if bid1 > 0 and bid1 + 1 <= max_acceptable_bid:
+            mm_bid = max(mm_bid, bid1 + 1)
+        elif bid2 is not None and bid2 + 1 <= max_acceptable_bid:
+            mm_bid = max(mm_bid, bid2 + 1)
+
+        if ask1 > 0 and ask1 - 1 >= min_acceptable_ask:
+            mm_ask = min(mm_ask, ask1 - 1)
+        elif ask2 is not None and ask2 - 1 >= min_acceptable_ask:
+            mm_ask = min(mm_ask, ask2 - 1)
+
+        # Stage 5: Safety bounding (Never cross our own spread, respect global FV extreme bounds)
+        if total_bid_qty > 0:
+            if best_ask > 0:
+                mm_bid = min(mm_bid, best_ask - 1)
+            # Cap at extremely absurd prices
+            mm_bid = min(mm_bid, self.OSMIUM_FAIR_VALUE + self.OSMIUM_OUTER_OFFSET)
+            pending_buys = self._place_buy(orders, product, mm_bid, total_bid_qty, position, pending_buys)
         
-        if self.OSMIUM_DYNAMIC_OUTER_ANCHOR and bb is not None and ba is not None:
-            spread = max(1, ba - bb)
-            outer_ask = inner_ask + spread
-        else:
-            outer_ask = max(inner_ask + self.OSMIUM_OUTER_QUOTE_OFFSET, fair_ceil + self.OSMIUM_OUTER_QUOTE_OFFSET + quote_shift)
-            
-        if bb is not None:
-            outer_ask = max(outer_ask, bb + 1)
+        if total_ask_qty > 0:
+            if best_bid > 0:
+                mm_ask = max(mm_ask, best_bid + 1)
+            # Floor at extremely absurd prices
+            mm_ask = max(mm_ask, self.OSMIUM_FAIR_VALUE - self.OSMIUM_OUTER_OFFSET)
+            pending_sells = self._place_sell(orders, product, mm_ask, total_ask_qty, position, pending_sells)
+             
+        return orders
 
-        if inner_bid_qty > 0 and (ba is None or inner_bid < ba):
-            pending_buys = self._place_buy(orders, product, inner_bid, inner_bid_qty, position, pending_buys)
-        if outer_bid_qty > 0 and outer_bid > 0 and (ba is None or outer_bid < ba):
-            pending_buys = self._place_buy(orders, product, outer_bid, outer_bid_qty, position, pending_buys)
-        if inner_ask_qty > 0 and (bb is None or inner_ask > bb):
-            pending_sells = self._place_sell(orders, product, inner_ask, inner_ask_qty, position, pending_sells)
-        if outer_ask_qty > 0 and (bb is None or outer_ask > bb):
-            pending_sells = self._place_sell(orders, product, outer_ask, outer_ask_qty, position, pending_sells)
-
-        return pending_buys, pending_sells
-
-    def _emergency_flatten(
-        self,
-        orders: List[Order],
-        product: str,
-        depth: OrderDepth,
-        position: int,
-        pending_buys: int,
-        pending_sells: int,
-    ) -> Tuple[bool, int, int]:
-        projected = position + pending_buys - pending_sells
-        if abs(projected) <= self.OSMIUM_EMERGENCY_THRESHOLD:
-            return False, pending_buys, pending_sells
-
-        best_bid, best_ask = self._best_bid_ask(depth)
-        if projected > self.OSMIUM_EMERGENCY_THRESHOLD:
-            flatten_qty = projected - self.OSMIUM_EMERGENCY_TARGET
-            if best_bid > 0 and flatten_qty > 0:
-                pending_sells = self._place_sell(orders, product, best_bid, flatten_qty, position, pending_sells)
-            return True, pending_buys, pending_sells
-        if projected < -self.OSMIUM_EMERGENCY_THRESHOLD:
-            flatten_qty = abs(projected) - self.OSMIUM_EMERGENCY_TARGET
-            if best_ask > 0 and flatten_qty > 0:
-                pending_buys = self._place_buy(orders, product, best_ask, flatten_qty, position, pending_buys)
-            return True, pending_buys, pending_sells
-        return False, pending_buys, pending_sells
-
-    # ── Trending Logic (PEPPER_ROOT) ─────────────────────────
+    # ── Trending Logic (PEPPER_ROOT) — UNTOUCHED ─────────────
     def _pepper_base_estimate(self, current_mid, timestamp: int, stored_base=None):
         if isinstance(stored_base, (int, float)):
             return float(stored_base)
         if current_mid is None:
             return None
         return float(current_mid) - self.PEPPER_SLOPE * float(timestamp)
-
-    # ── Asset Execution Pipelines ────────────────────────────
-    def _trade_osmium(self, state: TradingState, fair_value, current_mid, last_mid) -> List[Order]:
-        """Osmium strategy from 177226.py."""
-        product = "ASH_COATED_OSMIUM"
-        depth = state.order_depths.get(product)
-        if depth is None:
-            return []
-        orders: List[Order] = []
-        position = state.position.get(product, 0)
-        pending_buys = 0
-        pending_sells = 0
-        fair = self.FAIR_VALUE[product] if fair_value is None else fair_value
-        last_change = 0.0 if current_mid is None or last_mid is None else current_mid - last_mid
-
-        pending_buys, pending_sells = self._take_mispriced(
-            orders,
-            product,
-            depth,
-            position,
-            pending_buys,
-            pending_sells,
-            fair_value=fair,
-            buy_inclusive=True,
-            sell_inclusive=True,
-        )
-        pending_buys, pending_sells = self._flatten_at_fair(
-            orders,
-            product,
-            depth,
-            position,
-            pending_buys,
-            pending_sells,
-            fair_value=fair,
-        )
-        triggered, pending_buys, pending_sells = self._emergency_flatten(
-            orders,
-            product,
-            depth,
-            position,
-            pending_buys,
-            pending_sells,
-        )
-        if triggered:
-            return orders
-
-        if last_change > 0:
-            quote_shift = -self.OSMIUM_MOMENTUM_QUOTE_SHIFT
-            bid_signal_scale = self.OSMIUM_MOMENTUM_DEFENSE_SCALE
-            ask_signal_scale = self.OSMIUM_MOMENTUM_AGRESS_SCALE
-        elif last_change < 0:
-            quote_shift = self.OSMIUM_MOMENTUM_QUOTE_SHIFT
-            bid_signal_scale = self.OSMIUM_MOMENTUM_AGRESS_SCALE
-            ask_signal_scale = self.OSMIUM_MOMENTUM_DEFENSE_SCALE
-        else:
-            quote_shift = 0
-            bid_signal_scale = 1.0
-            ask_signal_scale = 1.0
-
-        self._penny_jump_quotes(
-            orders,
-            product,
-            depth,
-            position,
-            pending_buys,
-            pending_sells,
-            fair,
-            quote_shift,
-            bid_signal_scale,
-            ask_signal_scale,
-        )
-
-        return orders
 
     def _trade_pepper_root(self, state: TradingState, base_estimate, reached_80: bool) -> Tuple[List[Order], bool]:
         product = "INTARIAN_PEPPER_ROOT"
@@ -594,28 +478,13 @@ class Trader:
             data.get("pepper_base_estimate"),
         )
 
-        osmium_depth = state.order_depths.get("ASH_COATED_OSMIUM")
-        osmium_mid = self._mid_price(osmium_depth) if osmium_depth else None
-        osmium_ema = data.get("osmium_ema")
-        osmium_last_mid = data.get("osmium_last_mid")
-
-        if osmium_mid is not None:
-            if osmium_ema is None:
-                osmium_ema = float(osmium_mid)
-            else:
-                osmium_ema = self.OSMIUM_EMA_ALPHA * float(osmium_mid) + (1 - self.OSMIUM_EMA_ALPHA) * float(osmium_ema)
-        osmium_fair = float(osmium_ema) if osmium_ema is not None else float(self.FAIR_VALUE["ASH_COATED_OSMIUM"])
-
         result: Dict[str, List[Order]] = {}
 
+        # ── Osmium ──
         if "ASH_COATED_OSMIUM" in state.order_depths:
-            result["ASH_COATED_OSMIUM"] = self._trade_osmium(
-                state,
-                osmium_fair,
-                osmium_mid,
-                osmium_last_mid,
-            )
+            result["ASH_COATED_OSMIUM"] = self._trade_osmium(state)
 
+        # ── Pepper Root ──
         if "INTARIAN_PEPPER_ROOT" in state.order_depths:
             pepper_orders, pepper_reached_80 = self._trade_pepper_root(
                 state,
@@ -626,8 +495,5 @@ class Trader:
             data["pepper_reached_80"] = pepper_reached_80
 
         data["pepper_base_estimate"] = pepper_base_estimate
-        data["osmium_ema"] = osmium_ema
-        data["osmium_last_mid"] = osmium_mid if osmium_mid is not None else osmium_last_mid
-
         trader_data = jsonpickle.encode(data)
         return result, 0, trader_data

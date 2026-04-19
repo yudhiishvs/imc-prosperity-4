@@ -1,223 +1,365 @@
-import pandas as pd
-import numpy as np
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import pathlib
-from scipy.stats import linregress
+"""
+analyze_osmium.py - Post-mortem analysis of a live round submission log.
 
-def resolve_repo_root(start: pathlib.Path) -> pathlib.Path:
-    cur = start
-    for _ in range(6):
-        if (cur / "pyproject.toml").exists() or (cur / "data").exists():
-            return cur
-        if cur.parent == cur:
-            break
-        cur = cur.parent
-    return start
+Usage:
+    python3 vedant/analyze_osmium.py 272299/272299.log
 
-def resolve_data_dir(root: pathlib.Path) -> pathlib.Path:
-    candidates = [
-        root / "data" / "round_1",
-        root / "data" / "ROUND_1",
-        root / "data" / "round1",
-        root / "data" / "ROUND1",
-    ]
-    for c in candidates:
-        if c.exists():
-            return c
-    return candidates[0]
+Data sources (from JSON log format):
+  - activitiesLog: CSV with per-tick order book, mid price, PnL
+  - tradeHistory:  list of actual fills (buyer/seller = "SUBMISSION" = us)
+"""
 
-ROOT = resolve_repo_root(pathlib.Path(__file__).resolve().parent)
-DATA = resolve_data_dir(ROOT)
-OUT_DIR = pathlib.Path(__file__).resolve().parent / "advanced_eda" / "figures"
-OUT_DIR.mkdir(parents=True, exist_ok=True)
+import json
+import sys
+import re
+from collections import defaultdict
+from pathlib import Path
 
-def load_data():
-    price_files = sorted(DATA.glob("prices_round_1_day_*.csv"))
-    frames = []
-    for fp in price_files:
-        df = pd.read_csv(fp, sep=";")
-        frames.append(df)
+PRODUCT = "ASH_COATED_OSMIUM"
+POSITION_LIMIT = 80
+LOG_PATH = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("272299/272299.log")
+
+
+# ─── LOAD & PARSE ─────────────────────────────────────────────────────────────
+
+def load_data(path: Path):
+    print(f"Loading {path.name} ({path.stat().st_size / 1e6:.1f} MB)...")
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return data
+
+
+def parse_activities(raw_csv: str, product: str):
+    """Parse the activitiesLog CSV for a specific product."""
+    rows = raw_csv.strip().split("\n")
+    header = rows[0].split(";")
     
-    df = pd.concat(frames, ignore_index=True)
-    for c in df.columns:
-        if c not in ['product', 'timestamp', 'day']:
-            df[c] = pd.to_numeric(df[c], errors='coerce')
-    df.sort_values(["day", "timestamp"], inplace=True)
-    df.reset_index(drop=True, inplace=True)
-    return df
+    records = []
+    for row in rows[1:]:
+        parts = row.split(";")
+        if len(parts) < len(header):
+            continue
+        rec = dict(zip(header, parts))
+        if rec.get("product", "").strip() != product:
+            continue
+        try:
+            records.append({
+                "day":       int(rec.get("day", 0)),
+                "timestamp": int(rec.get("timestamp", 0)),
+                "bid1":      float(rec["bid_price_1"]) if rec["bid_price_1"].strip() else None,
+                "bid1v":     float(rec["bid_volume_1"]) if rec["bid_volume_1"].strip() else None,
+                "ask1":      float(rec["ask_price_1"]) if rec["ask_price_1"].strip() else None,
+                "ask1v":     float(rec["ask_volume_1"]) if rec["ask_volume_1"].strip() else None,
+                "mid":       float(rec["mid_price"]) if rec["mid_price"].strip() else None,
+                "pnl":       float(rec["profit_and_loss"]) if rec["profit_and_loss"].strip() else None,
+            })
+        except (KeyError, ValueError):
+            continue
+    return records
 
-def clean_mid_per_day(osm: pd.DataFrame) -> pd.DataFrame:
-    osm = osm.copy()
-    osm.sort_values(["day", "timestamp"], inplace=True)
-    osm.reset_index(drop=True, inplace=True)
 
-    valid = osm["bid_price_1"].notna() & osm["ask_price_1"].notna()
-    osm["raw_mid"] = np.where(valid, (osm["bid_price_1"] + osm["ask_price_1"]) / 2.0, np.nan)
-    osm["clean_mid"] = osm.groupby("day")["raw_mid"].transform(
-        lambda s: s.interpolate(method="linear", limit_direction="both")
+def parse_trades(trade_history: list, product: str):
+    """Extract our fills from tradeHistory."""
+    our_buys = []
+    our_sells = []
+    for t in trade_history:
+        if t.get("symbol") != product:
+            continue
+        price = float(t.get("price", 0))
+        qty = int(t.get("quantity", 0))
+        if t.get("buyer") == "SUBMISSION":
+            our_buys.append({"ts": t["timestamp"], "price": price, "qty": qty})
+        elif t.get("seller") == "SUBMISSION":
+            our_sells.append({"ts": t["timestamp"], "price": price, "qty": qty})
+    return our_buys, our_sells
+
+
+# ─── RECONSTRUCT POSITION ─────────────────────────────────────────────────────
+
+def reconstruct_positions(our_buys, our_sells, tick_timestamps):
+    """Walk through fills in time order to rebuild position at each timestamp."""
+    events = sorted(
+        [(t["ts"], +t["qty"]) for t in our_buys] +
+        [(t["ts"], -t["qty"]) for t in our_sells]
     )
-    osm["spread_l1"] = (osm["ask_price_1"] - osm["bid_price_1"]).astype(float)
-    osm.loc[~valid, "spread_l1"] = np.nan
-    return osm
-
-
-def compute_oim_features(osm: pd.DataFrame) -> pd.DataFrame:
-    osm = osm.copy()
-    b1 = osm["bid_volume_1"].fillna(0.0)
-    a1 = osm["ask_volume_1"].fillna(0.0)
-    den1 = (b1 + a1).replace(0.0, np.nan)
-    osm["oim_l1"] = ((b1 - a1) / den1).fillna(0.0)
-
-    bid_tot = osm[["bid_volume_1", "bid_volume_2", "bid_volume_3"]].fillna(0.0).sum(axis=1)
-    ask_tot = osm[["ask_volume_1", "ask_volume_2", "ask_volume_3"]].fillna(0.0).sum(axis=1)
-    dent = (bid_tot + ask_tot).replace(0.0, np.nan)
-    osm["oim_total"] = ((bid_tot - ask_tot) / dent).fillna(0.0)
-    return osm
-
-
-def ar1_half_life(x: pd.Series) -> float | None:
-    s = x.dropna().astype(float)
-    if len(s) < 50:
-        return None
-    x0 = s.iloc[:-1].values
-    x1 = s.iloc[1:].values
-    if np.std(x0) < 1e-9:
-        return None
-    beta = np.polyfit(x0, x1, 1)[0]
-    if beta <= 0 or beta >= 1:
-        return None
-    # half-life in ticks for AR(1): ln(0.5)/ln(beta)
-    return float(np.log(0.5) / np.log(beta))
-
-
-def analyze_osmium():
-    print("Loading data...")
-    df = load_data()
-    if df.empty: return
     
-    osmium = df[df['product'] == 'ASH_COATED_OSMIUM'].copy()
-    osmium = clean_mid_per_day(osmium)
-    osmium = compute_oim_features(osmium)
-    
-    print("\n--- 1. Data Cleaning (Mid Price Spikes) ---")
-    print(f"Total rows: {len(osmium)}")
-    print(f"Missing/Zero mid_prices before interpolation: {osmium['raw_mid'].isna().sum()}")
-    print(f"Missing/Zero mid_prices after interpolation: {osmium['clean_mid'].isna().sum()}")
-    print(f"Rows with missing L1 side (bid or ask): {(osmium['bid_price_1'].isna() | osmium['ask_price_1'].isna()).sum()}")
+    pos = 0
+    ev_idx = 0
+    pos_by_ts = {}
+    for ts in tick_timestamps:
+        while ev_idx < len(events) and events[ev_idx][0] <= ts:
+            pos += events[ev_idx][1]
+            ev_idx += 1
+        pos_by_ts[ts] = pos
+    return pos_by_ts
 
-    print("\n--- 1b. Spread + Volatility Baselines ---")
-    spread = osmium["spread_l1"].dropna()
-    if len(spread) > 0:
-        print("L1 spread stats (ticks):")
-        print(spread.describe(percentiles=[0.1, 0.25, 0.5, 0.75, 0.9, 0.99]))
 
-    osmium["ret_1"] = osmium.groupby("day")["clean_mid"].diff()
-    r1 = osmium["ret_1"].dropna()
-    if len(r1) > 0:
-        print("\n1-tick clean-mid changes (ticks):")
-        print(r1.describe(percentiles=[0.1, 0.25, 0.5, 0.75, 0.9, 0.99]))
+# ─── ANALYSIS ─────────────────────────────────────────────────────────────────
 
-    print("\n--- 2. Drift vs. Mean Reversion Analysis ---")
-    slopes = []
-    means = []
-    for day in osmium['day'].unique():
-        day_data = osmium[osmium['day'] == day]
-        slope, intercept, r_value, p_value, std_err = linregress(day_data['timestamp'], day_data['clean_mid'])
-        slopes.append(slope)
-        mean_val = np.mean(day_data['clean_mid'])
-        means.append(mean_val)
-        print(f"Day {day} Slope: {slope:.10f} | Mean: {mean_val:.4f} | R2: {r_value**2:.6f}")
-        
-    print(f"\nAverage Slope across all days: {np.mean(slopes):.10f}")
-    data_fv = np.mean(osmium['clean_mid'])
-    print(f"Global Mean Price (Data-Backed FV): {data_fv:.4f}")
+def analyze_inventory(acts, pos_by_ts):
+    print("\n" + "="*62)
+    print("  [1] INVENTORY DRIFT ANALYSIS")
+    print("="*62)
 
-    print("\n--- 2b. Mean Reversion Half-Life (AR(1) on deviations) ---")
-    hl_all = ar1_half_life(osmium["clean_mid"] - data_fv)
-    if hl_all is not None:
-        print(f"Approx half-life vs global mean (ticks): {hl_all:.1f}")
-    for day in sorted(osmium["day"].unique()):
-        day_s = osmium.loc[osmium["day"] == day, "clean_mid"]
-        day_mean = float(day_s.mean())
-        hl = ar1_half_life(day_s - day_mean)
-        if hl is not None:
-            print(f"Day {day} half-life vs day mean (ticks): {hl:.1f}")
+    all_pos = [pos_by_ts.get(r["timestamp"], 0) for r in acts]
+    if not all_pos:
+        print("  No position data.")
+        return
 
-    print("\n--- 3. Orderbook Imbalance (OIM) Predictivity ---")
-    for feat in ["oim_l1", "oim_total"]:
-        print(f"\nFeature: {feat}")
-        for ticks in [1, 2, 5, 10]:
-            osmium[f"mid_change_{ticks}"] = osmium.groupby("day")["clean_mid"].shift(-ticks) - osmium["clean_mid"]
-            corr = osmium[feat].corr(osmium[f"mid_change_{ticks}"])
-            print(f"Correlation to +{ticks} tick change: {corr:.4f}")
+    stuck_long  = sum(1 for p in all_pos if p >= 40)
+    stuck_short = sum(1 for p in all_pos if p <= -40)
+    near_flat   = sum(1 for p in all_pos if abs(p) <= 5)
+    total = len(all_pos)
 
-        # Simple out-of-sample check: train on days -2/-1, test on day 0 using a linear slope.
-        train = osmium[osmium["day"].isin([-2, -1])].dropna(subset=["clean_mid"])
-        test = osmium[osmium["day"] == 0].dropna(subset=["clean_mid"])
-        if len(train) > 1000 and len(test) > 1000:
-            horizon = 1
-            train_y = train.groupby("day")["clean_mid"].shift(-horizon) - train["clean_mid"]
-            test_y = test.groupby("day")["clean_mid"].shift(-horizon) - test["clean_mid"]
-            tr = train.assign(y=train_y).dropna(subset=["y"])
-            te = test.assign(y=test_y).dropna(subset=["y"])
-            slope = np.cov(tr[feat], tr["y"])[0, 1] / (np.var(tr[feat]) + 1e-9)
-            pred = slope * te[feat]
-            dir_acc = (np.sign(pred) == np.sign(te["y"])).mean()
-            print(f"Train(-2,-1) -> Test(0): slope={slope:.4f} | direction-accuracy={dir_acc:.3f}")
+    print(f"  Total ticks: {total:,}")
+    print(f"  |pos| >= 40 (STUCK LONG):  {stuck_long:>6,}  ({100*stuck_long/total:.1f}%)")
+    print(f"  |pos| <= -40 (STUCK SHORT): {stuck_short:>6,}  ({100*stuck_short/total:.1f}%)")
+    print(f"  |pos| <= 5  (NEAR FLAT):   {near_flat:>6,}  ({100*near_flat/total:.1f}%)")
 
-    print("\n--- 4. Visualizing Spread Dynamics ---")
-    day_plot = osmium[osmium['day'] == osmium['day'].iloc[0]].copy()
-    
-    subset = day_plot[day_plot['timestamp'] <= 100000]
-    
-    fig, ax = plt.subplots(figsize=(16, 8))
-    ax.plot(subset['timestamp'], subset['ask_price_1'], label='Ask L1', color='red', alpha=0.8, linewidth=1)
-    ax.plot(subset['timestamp'], subset['bid_price_1'], label='Bid L1', color='green', alpha=0.8, linewidth=1)
-    ax.plot(subset['timestamp'], subset['ask_price_2'], label='Ask L2', color='salmon', alpha=0.5, linewidth=1)
-    ax.plot(subset['timestamp'], subset['bid_price_2'], label='Bid L2', color='lightgreen', alpha=0.5, linewidth=1)
-    ax.plot(subset['timestamp'], subset['clean_mid'], label='Clean Mid (Interpolated)', color='blue', alpha=0.9, linewidth=1.5, linestyle='--')
-    ax.axhline(data_fv, color='black', linestyle='-', label=f'Data-Backed FV ({data_fv:.1f})')
+    # Streak analysis
+    max_ls = max_ss = cur_ls = cur_ss = 0
+    for p in all_pos:
+        if p >= 40:   cur_ls += 1; cur_ss = 0
+        elif p <= -40: cur_ss += 1; cur_ls = 0
+        else:          cur_ls = cur_ss = 0
+        max_ls = max(max_ls, cur_ls)
+        max_ss = max(max_ss, cur_ss)
 
-    ax.set_title(f"ASH_COATED_OSMIUM Spread Dynamics (L1, L2, Clean Mid)\nData-Backed FV = {data_fv:.2f}")
-    ax.set_xlabel("Timestamp")
-    ax.set_ylabel("Price")
-    ax.legend(loc='upper right')
-    
-    plt.tight_layout()
-    plot1 = OUT_DIR / "osmium_spread_dynamics.png"
-    plt.savefig(plot1, dpi=200)
-    print(f"Saved spread dynamics plot to: {plot1}")
+    print(f"\n  Longest STUCK LONG streak:  {max_ls:,} ticks")
+    print(f"  Longest STUCK SHORT streak: {max_ss:,} ticks")
+    if max_ls > 200 or max_ss > 200:
+        print("  ⚠ DEATH SPIRAL: Strategy accumulated and could NOT unwind.")
+    else:
+        print("  ✅ No runaway inventory streaks.")
 
-    fig2, ax2 = plt.subplots(figsize=(12, 6))
-    micro = day_plot.head(200)
-    
-    ax2.plot(micro['timestamp'], micro['ask_price_1'], label='Ask L1', color='red', marker='o', markersize=3)
-    ax2.plot(micro['timestamp'], micro['bid_price_1'], label='Bid L1', color='green', marker='o', markersize=3)
-    ax2.plot(micro['timestamp'], micro['ask_price_2'], label='Ask L2', color='salmon', marker='x', markersize=3)
-    ax2.plot(micro['timestamp'], micro['bid_price_2'], label='Bid L2', color='lightgreen', marker='x', markersize=3)
-    ax2.plot(micro['timestamp'], micro['clean_mid'], label='Clean Mid', color='blue', linestyle='--')
-    ax2.axhline(data_fv, color='black', linestyle='-', label=f'Global FV ({data_fv:.1f})')
-    
-    ax2.set_title("Osmium Micro-Structure (First 200 Trades)")
-    ax2.legend()
-    plt.tight_layout()
-    plot2 = OUT_DIR / "osmium_spread_micro.png"
-    plt.savefig(plot2, dpi=150)
-    print(f"Saved micro structure plot to: {plot2}")
+    # Distribution histogram
+    buckets = defaultdict(int)
+    for p in all_pos:
+        buckets[(p // 10) * 10] += 1
+    print("\n  Position distribution (per 10-unit bucket):")
+    for b in sorted(buckets):
+        bar = "█" * min(40, buckets[b] * 40 // total)
+        print(f"    [{b:+4d}..{b+9:+4d}]: {bar:40s} {buckets[b]:,}")
 
-    print("\n--- 5. OIM vs Next-Tick Move (Binned) ---")
-    tmp = osmium.dropna(subset=["clean_mid"]).copy()
-    tmp["y1"] = tmp.groupby("day")["clean_mid"].shift(-1) - tmp["clean_mid"]
-    tmp = tmp.dropna(subset=["y1"])
 
-    for feat in ["oim_l1", "oim_total"]:
-        # Use quantile bins for interpretability; duplicates can happen if distribution is spiky.
-        bins = pd.qcut(tmp[feat], q=10, duplicates="drop")
-        agg = tmp.groupby(bins)["y1"].mean()
-        print(f"\nMean next-tick move by {feat} decile:")
-        print(agg)
+def analyze_spread_captures(our_buys, our_sells, acts):
+    print("\n" + "="*62)
+    print("  [2] TRADE FILL QUALITY (Spread Capture)")
+    print("="*62)
+
+    total_buy_vol  = sum(t["qty"] for t in our_buys)
+    total_sell_vol = sum(t["qty"] for t in our_sells)
+    avg_buy  = sum(t["price"]*t["qty"] for t in our_buys)  / max(1, total_buy_vol)
+    avg_sell = sum(t["price"]*t["qty"] for t in our_sells) / max(1, total_sell_vol)
+    net_capture = avg_sell - avg_buy
+
+    print(f"  Total BUY fills:  {len(our_buys):>5,}  ({total_buy_vol:,} units)")
+    print(f"  Total SELL fills: {len(our_sells):>5,}  ({total_sell_vol:,} units)")
+    print(f"  Net flow (buys-sells): {total_buy_vol - total_sell_vol:+,} units")
+    print(f"\n  Avg buy price:  {avg_buy:.2f}")
+    print(f"  Avg sell price: {avg_sell:.2f}")
+    print(f"  Net spread capture per unit: {net_capture:+.2f} ticks")
+
+    if net_capture < 0:
+        print("  ❌ CRITICAL: We bought high and sold low — acting as liquidity TAKER.")
+    elif net_capture < 1.0:
+        print("  ⚠ Spread capture is very thin. Near break-even.")
+    else:
+        print("  ✅ Positive spread capture — market making working.")
+
+    # Also compare our prices vs the market mid at each fill
+    mid_by_ts = {r["timestamp"]: r["mid"] for r in acts if r["mid"] is not None}
+    buy_vs_mid  = []
+    sell_vs_mid = []
+    for t in our_buys:
+        m = mid_by_ts.get(t["ts"])
+        if m: buy_vs_mid.append(t["price"] - m)
+    for t in our_sells:
+        m = mid_by_ts.get(t["ts"])
+        if m: sell_vs_mid.append(t["price"] - m)
+
+    if buy_vs_mid:
+        avg_bv = sum(buy_vs_mid) / len(buy_vs_mid)
+        print(f"\n  Avg BUY vs mid:  {avg_bv:+.2f}  (negative = we paid BELOW mid ✅, positive = above mid ❌)")
+    if sell_vs_mid:
+        avg_sv = sum(sell_vs_mid) / len(sell_vs_mid)
+        print(f"  Avg SELL vs mid: {avg_sv:+.2f}  (positive = we sold ABOVE mid ✅, negative = below mid ❌)")
+
+
+def analyze_pnl(acts):
+    print("\n" + "="*62)
+    print("  [3] PnL TRAJECTORY")
+    print("="*62)
+
+    pnls = [(r["timestamp"], r["pnl"]) for r in acts if r["pnl"] is not None]
+    if not pnls:
+        print("  No PnL data.")
+        return
+
+    n = len(pnls)
+    qs = [pnls[:n//4], pnls[n//4:n//2], pnls[n//2:3*n//4], pnls[3*n//4:]]
+
+    def delta(q):
+        if len(q) < 2: return 0
+        return q[-1][1] - q[0][1]
+
+    labels = ["Q1 (0-25%)", "Q2 (25-50%)", "Q3 (50-75%)", "Q4 (75-100%)"]
+    deltas = [delta(q) for q in qs]
+
+    print(f"  {'Quarter':<15} {'PnL Change':>12}")
+    print(f"  {'-'*15} {'-'*12}")
+    for label, d in zip(labels, deltas):
+        icon = "✅" if d > 0 else "❌"
+        print(f"  {label:<15} {d:>+12,.0f}  {icon}")
+
+    total_delta = pnls[-1][1] - pnls[0][1]
+    print(f"\n  Total PnL change: {total_delta:+,.0f}")
+    print(f"  Final PnL:        {pnls[-1][1]:,.0f}")
+
+    if deltas[3] < 0 and deltas[0] > 0:
+        print("\n  ⚠ OVERFIT SIGNAL: Profitable early but lost money in Q4.")
+        print("    The live market diverged from your backtest patterns.")
+    elif all(d < 0 for d in deltas):
+        print("\n  ❌ CONSISTENT LOSSES every quarter — structural strategy issue.")
+    elif deltas[3] > max(deltas[0], deltas[1], deltas[2]):
+        print("\n  ✅ Strategy IMPROVED over the round — good generalization.")
+
+
+def analyze_ema_lag(acts, alpha=0.1122):
+    print("\n" + "="*62)
+    print(f"  [4] EMA LAG ANALYSIS (alpha={alpha})")
+    print("="*62)
+
+    mids = [r["mid"] for r in acts if r["mid"] is not None]
+    if len(mids) < 10:
+        print("  Not enough mid price data.")
+        return
+
+    ema = mids[0]
+    lags = []
+    for m in mids[1:]:
+        ema = alpha * m + (1 - alpha) * ema
+        lags.append(abs(ema - m))
+
+    avg_lag = sum(lags) / len(lags)
+    max_lag = max(lags)
+    p90_lag = sorted(lags)[int(0.9 * len(lags))]
+
+    print(f"  Avg |EMA - mid|:  {avg_lag:.2f} ticks")
+    print(f"  90th pct lag:     {p90_lag:.2f} ticks")
+    print(f"  Max lag:          {max_lag:.2f} ticks")
+
+    spread_sample = [
+        (r["ask1"] - r["bid1"])
+        for r in acts
+        if r["bid1"] is not None and r["ask1"] is not None
+    ]
+    avg_spread = sum(spread_sample) / len(spread_sample) if spread_sample else 5.0
+
+    print(f"\n  Avg market spread: {avg_spread:.2f} ticks")
+    print(f"  EMA lag / spread:  {avg_lag / avg_spread:.2f}x")
+
+    if avg_lag > avg_spread:
+        print("  ❌ EMA lags by MORE than 1 full spread — fair value signal is stale.")
+        print("    Consider INCREASING OSMIUM_EMA_ALPHA to make the signal react faster.")
+    elif avg_lag > avg_spread * 0.5:
+        print("  ⚠ EMA lag is significant (>0.5 spreads). Might be missing fast moves.")
+    else:
+        print("  ✅ EMA lag is within reason relative to spread.")
+
+
+def analyze_spread_regime(acts):
+    print("\n" + "="*62)
+    print("  [5] MARKET REGIME vs BACKTEST ASSUMPTIONS")
+    print("="*62)
+
+    spreads = [
+        r["ask1"] - r["bid1"]
+        for r in acts
+        if r["bid1"] is not None and r["ask1"] is not None
+    ]
+    mids = [r["mid"] for r in acts if r["mid"] is not None]
+
+    if not spreads or not mids:
+        print("  Not enough data.")
+        return
+
+    avg_spread = sum(spreads) / len(spreads)
+    min_spread = min(spreads)
+    max_spread = max(spreads)
+
+    # Volatility: std of tick-to-tick mid returns
+    returns = [abs(mids[i] - mids[i-1]) for i in range(1, len(mids))]
+    avg_move = sum(returns) / len(returns) if returns else 0
+
+    print(f"  Avg bid-ask spread:   {avg_spread:.2f} ticks")
+    print(f"  Spread range:         [{min_spread:.0f}, {max_spread:.0f}] ticks")
+    print(f"  Avg tick-to-tick move: {avg_move:.3f} ticks")
+    print(f"  Spread: {avg_spread:.2f}  |  Avg move: {avg_move:.3f}")
+
+    if avg_spread <= 2:
+        print("\n  ⚠ Very tight spread environment. High sensitivity to quote offset params.")
+        print("    At 1-tick spreads, OUTER_QUOTE_OFFSET > 2 is effectively ghost quoting.")
+    if avg_move > avg_spread:
+        print("  ⚠ Market moves faster than the spread — momentum fade is CRITICAL.")
+        print("    MOMENTUM_AGRESS_SCALE being very high may have caused runaway positions.")
+
+
+# ─── MAIN ─────────────────────────────────────────────────────────────────────
+
+def main():
+    data = load_data(LOG_PATH)
+
+    print(f"\n{'='*62}")
+    print(f"  SUBMISSION: {data.get('submissionId', 'unknown')}")
+    print(f"  PRODUCT:    {PRODUCT}")
+    print(f"{'='*62}")
+
+    acts = parse_activities(data["activitiesLog"], PRODUCT)
+    our_buys, our_sells = parse_trades(data["tradeHistory"], PRODUCT)
+
+    print(f"\n  Activity rows:  {len(acts):,}")
+    print(f"  Our BUY fills:  {len(our_buys):,}")
+    print(f"  Our SELL fills: {len(our_sells):,}")
+
+    tick_timestamps = sorted(set(r["timestamp"] for r in acts))
+    pos_by_ts = reconstruct_positions(our_buys, our_sells, tick_timestamps)
+
+    analyze_inventory(acts, pos_by_ts)
+    analyze_spread_captures(our_buys, our_sells, acts)
+    analyze_pnl(acts)
+    analyze_ema_lag(acts, alpha=0.1122)
+    analyze_spread_regime(acts)
+
+    print("\n" + "="*62)
+    print("  SUMMARY OF HYPOTHESES")
+    print("="*62)
+    print("""
+  Review the flags above. Common causes of out-of-sample failure:
+
+  ① INVENTORY DEATH SPIRAL
+    If stuck_long/stuck_short % is high, the strategy accumulated a
+    directional position it couldn't unwind. Root cause: EMA chasing
+    price (alpha too low), or inventory skew too weak to force sells.
+
+  ② LIQUIDITY TAKER (negative spread capture)
+    Negative avg_sell - avg_buy means aggressive taking is firing at
+    bad prices. TAKE_UNWIND_WIDTH or SYMMETRIC_ZONE being too large
+    causes us to hit bids/lift asks at unfavorable moments.
+
+  ③ EMA LAG > 1 SPREAD
+    If EMA lags by more than one spread, every quote is stale. This
+    is the core overfit mechanism: the backtests may have had specific
+    price paths where a slow EMA worked, but it fails in general.
+
+  ④ GHOST QUOTING (outer offset > spread)
+    If avg_spread ~ 2 and OUTER_QUOTE_OFFSET = 15, the outer level
+    never fills and all volume goes through a single inner level.
+
+  ⑤ MOMENTUM SCALE INSTABILITY
+    AGRESS_SCALE ~9.8 means a 1-tick move triggers 9.8x volume on one
+    side. In a noisy live market, this blows up positions rapidly.
+""")
 
 if __name__ == "__main__":
-    analyze_osmium()
+    main()
