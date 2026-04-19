@@ -50,16 +50,18 @@ ADAPT_SHRINK_RATE = 0.8      # Shrink rate when improvement is small (< 50% of l
 # format: ParamDef("NAME", is_int, default_val, base_step, min_step, (min_bound, max_bound))
 def get_params() -> List[ParamDef]:
     return [
-        ParamDef("OSMIUM_INNER_OFFSET",           True,   3,    1,    1,    (0, 5)),
-        ParamDef("OSMIUM_OUTER_OFFSET",           True,   26,   2,    1,    (8, 30)),
-        ParamDef("OSMIUM_VOLUME_SKEW_AGGRESSION", False,  0.59, 0.2,  0.05, (0.0, 3.0)),
-        ParamDef("OSMIUM_OIM_SHIFT",              True,   1,    1,    1,    (0, 3)),
-        ParamDef("OSMIUM_BASE_QUOTE_SIZE",        True,   21,   5,    1,    (10, 80)),
+        ParamDef("OSMIUM_EMA_ALPHA",             False,  0.001, 0.001, 0.0001, (0.0001, 0.1)),
+        ParamDef("OSMIUM_INNER_OFFSET",           True,   10,    1,    1,    (0, 10)),
+        ParamDef("OSMIUM_OUTER_OFFSET",           True,   10,   2,    1,    (0, 30)),
+        ParamDef("OSMIUM_VOLUME_SKEW_AGGRESSION", False,  1.5, 0.2,  0.05, (0.0, 3.0)),
+        ParamDef("OSMIUM_OIM_SHIFT",              True,   0,    1,    1,    (0, 5)),
+        ParamDef("OSMIUM_BASE_QUOTE_SIZE",        True,   20,   5,    1,    (10, 80)),
+        ParamDef("OSMIUM_L2_QUOTE_SIZE",          True,   40,   5,    1,    (10, 80)),
         ParamDef("OSMIUM_KILL_SWITCH_THRESHOLD",  True,   80,   5,    1,    (40, 80)),
-        ParamDef("OSMIUM_OIM_THRESHOLD",          False,  0.9,  0.05, 0.01, (0.01, 0.99)),
-        ParamDef("OSMIUM_OIM_FADE_SCALE",         False,  1.0,  0.1,  0.05, (0.0, 1.5)),
-        ParamDef("OSMIUM_OIM_EDGE_SCALE",         False,  1.0,  0.2,  0.05, (1.0, 5.0)),
-        ParamDef("OSMIUM_OIM_TAKE_SCALE",         False,  1.0,  0.2,  0.05, (0.0, 5.0)),
+        ParamDef("OSMIUM_OIM_THRESHOLD",          False,  0.9,  0.05, 0.01, (0.0, 0.99)),
+        ParamDef("OSMIUM_OIM_FADE_SCALE",         False,  0,  0.1,  0.05, (0.0, 1.5)),
+        ParamDef("OSMIUM_OIM_EDGE_SCALE",         False,  1.0,  0.2,  0.1, (0.0, 5.0)),
+        ParamDef("OSMIUM_OIM_TAKE_SCALE",         False,  1.0,  0.2,  0.1, (0.0, 8.0)),
         ParamDef("OSMIUM_FV_TETHER_SCALE",        False,  0.05, 0.01, 0.005, (0.0, 0.5)),
     ]
 

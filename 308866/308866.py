@@ -13,7 +13,6 @@ class Trader:
 
     # ── Osmium: OIM-Led Regime Discovery MM ───────────────
     OSMIUM_POSITION_LIMIT = 80
-    OSMIUM_INITIAL_FV = 10000
     
     # OSMIUM_BASE_QUOTE_SIZE = 48
     # OSMIUM_VOLUME_SKEW_AGGRESSION = 0.590
@@ -31,20 +30,19 @@ class Trader:
     # OSMIUM_FV_TETHER_SCALE = 0.050
     # OSMIUM_OIM_TAKE_SCALE = 1.000
     
-    OSMIUM_EMA_ALPHA = 0.074
-    OSMIUM_INNER_OFFSET = 7
-    OSMIUM_OUTER_OFFSET = 1
-    OSMIUM_VOLUME_SKEW_AGGRESSION = 1.224
-    OSMIUM_OIM_SHIFT = 0
-    OSMIUM_BASE_QUOTE_SIZE = 51
-    OSMIUM_L2_QUOTE_SIZE = 38
-    OSMIUM_KILL_SWITCH_THRESHOLD = 61
-    OSMIUM_OIM_THRESHOLD = 0.022
-    OSMIUM_OIM_FADE_SCALE = 0.751
-    OSMIUM_OIM_EDGE_SCALE = 0.858
-    OSMIUM_OIM_TAKE_SCALE = 0.689
-    OSMIUM_FV_TETHER_SCALE = 0.031
-
+    OSMIUM_FAIR_VALUE                   =    10009
+    OSMIUM_INNER_OFFSET                 =        8
+    OSMIUM_OUTER_OFFSET                 =        8
+    OSMIUM_VOLUME_SKEW_AGGRESSION       =      1.354
+    OSMIUM_OIM_SHIFT                    =        0
+    OSMIUM_BASE_QUOTE_SIZE              =       78
+    OSMIUM_KILL_SWITCH_THRESHOLD        =       80
+    OSMIUM_OIM_THRESHOLD                =      0.853
+    OSMIUM_OIM_FADE_SCALE               =      0.006
+    OSMIUM_OIM_EDGE_SCALE               =      1.774
+    OSMIUM_OIM_TAKE_SCALE               =      0.906
+    OSMIUM_FV_TETHER_SCALE              =       0.07
+    OSMIUM_L2_QUOTE_SIZE                =       80
 
 
     # ── Pepper (Optimized via Grid Search — UNTOUCHED) ──
@@ -72,7 +70,6 @@ class Trader:
         default_data = {
             "pepper_base_estimate": None,
             "pepper_reached_80": False,
-            "osmium_ema": None,
         }
         if not raw:
             return default_data
@@ -93,16 +90,9 @@ class Trader:
         if not isinstance(pepper_reached_80, bool):
             pepper_reached_80 = False
 
-        osmium_ema = data.get("osmium_ema")
-        if not isinstance(osmium_ema, (int, float)):
-            osmium_ema = None
-        else:
-            osmium_ema = float(osmium_ema)
-
         return {
             "pepper_base_estimate": base_estimate,
             "pepper_reached_80": pepper_reached_80,
-            "osmium_ema": osmium_ema,
         }
 
     # ── Shared Helpers ───────────────────────────────────────
@@ -209,12 +199,12 @@ class Trader:
         return pending_sells
 
     # ── Osmium Execution Pipeline ────────────────────────────
-    def _trade_osmium(self, state: TradingState, osmium_ema: float) -> Tuple[List[Order], float]:
-        """OIM-Led Regime Discovery MM. Centers around localized mid_price with EMA fair value."""
+    def _trade_osmium(self, state: TradingState) -> List[Order]:
+        """OIM-Led Regime Discovery MM. Centers around localized mid_price with FV tethering."""
         product = "ASH_COATED_OSMIUM"
         depth = state.order_depths.get(product)
         if depth is None:
-            return [], osmium_ema
+            return []
 
         orders: List[Order] = []
         position = state.position.get(product, 0)
@@ -231,15 +221,7 @@ class Trader:
             elif best_ask > 0:
                 current_mid = best_ask - self.OSMIUM_OUTER_OFFSET
             else:
-                current_mid = osmium_ema if osmium_ema is not None else self.OSMIUM_INITIAL_FV
-
-        # Update Adaptive Fair Value (EMA)
-        if osmium_ema is None:
-            osmium_ema = self.OSMIUM_INITIAL_FV
-        
-        # EMA = (1-alpha)*prev + alpha*current
-        osmium_ema = (1.0 - self.OSMIUM_EMA_ALPHA) * osmium_ema + self.OSMIUM_EMA_ALPHA * current_mid
-        osmium_fv = osmium_ema
+                current_mid = self.OSMIUM_FAIR_VALUE
                 
         # Stage 2: Calculate Leading Indicator (OIM)
         # Empirical Data: L1 is highly predictive (99% hit rate h=5). L2/L3 is spoofed noise.
@@ -259,13 +241,13 @@ class Trader:
         if abs(oim) >= self.OSMIUM_OIM_THRESHOLD and self.OSMIUM_OIM_TAKE_SCALE > 0:
             take_fraction = min(1.0, abs(oim) * self.OSMIUM_OIM_TAKE_SCALE)
             # NEVER cross the spread unconditionally. Only take if quote provides strict mathematical FV edge.
-            if oim > 0 and best_ask > 0 and best_ask < osmium_fv:
+            if oim > 0 and best_ask > 0 and best_ask < self.OSMIUM_FAIR_VALUE:
                 room = self._buy_room(product, position, pending_buys)
                 desired_take = int(round(abs(depth.sell_orders[best_ask]) * take_fraction))
                 take_vol = min(desired_take, room)
                 if take_vol > 0:
                     pending_buys = self._place_buy(orders, product, best_ask, take_vol, position, pending_buys)
-            elif oim < 0 and best_bid > 0 and best_bid > osmium_fv:
+            elif oim < 0 and best_bid > 0 and best_bid > self.OSMIUM_FAIR_VALUE:
                 room = self._sell_room(product, position, pending_sells)
                 desired_take = int(round(depth.buy_orders[best_bid] * take_fraction))
                 take_vol = min(desired_take, room)
@@ -277,7 +259,7 @@ class Trader:
         pos_ratio = projected / self.OSMIUM_POSITION_LIMIT
         
         # Weak Gravity Tether to Global FV shifts the effective inventory perception
-        tether_skew = (current_mid - osmium_fv) * self.OSMIUM_FV_TETHER_SCALE
+        tether_skew = (current_mid - self.OSMIUM_FAIR_VALUE) * self.OSMIUM_FV_TETHER_SCALE
         effective_pos_ratio = pos_ratio + tether_skew
             
         bid_scale = max(0.0, 1.0 - max(0.0, effective_pos_ratio) * self.OSMIUM_VOLUME_SKEW_AGGRESSION)
@@ -315,8 +297,8 @@ class Trader:
         bid1, ask1 = best_bid, best_ask
         bid2, ask2 = self._second_bid_ask(depth)
         
-        max_acceptable_bid = math.floor(osmium_fv) - 1 + bid_shift
-        min_acceptable_ask = math.ceil(osmium_fv) + 1 + ask_shift
+        max_acceptable_bid = math.floor(self.OSMIUM_FAIR_VALUE) - 1 + bid_shift
+        min_acceptable_ask = math.ceil(self.OSMIUM_FAIR_VALUE) + 1 + ask_shift
 
         # Try to aggressively penny-jump L1. If L1 violates our bounds, fall back to capturing L2 priority.
         jump_l2_bid = False
@@ -344,7 +326,7 @@ class Trader:
             if best_ask > 0:
                 mm_bid = min(mm_bid, best_ask - 1)
             # Cap at extremely absurd prices
-            mm_bid = int(round(min(mm_bid, osmium_fv + self.OSMIUM_OUTER_OFFSET)))
+            mm_bid = min(mm_bid, self.OSMIUM_FAIR_VALUE + self.OSMIUM_OUTER_OFFSET)
             pending_buys = self._place_buy(orders, product, mm_bid, qty, position, pending_buys)
         
         if total_ask_qty > 0:
@@ -356,10 +338,10 @@ class Trader:
             if best_bid > 0:
                 mm_ask = max(mm_ask, best_bid + 1)
             # Floor at extremely absurd prices
-            mm_ask = int(round(max(mm_ask, osmium_fv - self.OSMIUM_OUTER_OFFSET)))
+            mm_ask = max(mm_ask, self.OSMIUM_FAIR_VALUE - self.OSMIUM_OUTER_OFFSET)
             pending_sells = self._place_sell(orders, product, mm_ask, qty, position, pending_sells)
              
-        return orders, osmium_ema
+        return orders
 
     # ── Trending Logic (PEPPER_ROOT) — UNTOUCHED ─────────────
     def _pepper_base_estimate(self, current_mid, timestamp: int, stored_base=None):
@@ -515,9 +497,7 @@ class Trader:
 
         # ── Osmium ──
         if "ASH_COATED_OSMIUM" in state.order_depths:
-            osmium_orders, osmium_ema = self._trade_osmium(state, data.get("osmium_ema"))
-            result["ASH_COATED_OSMIUM"] = osmium_orders
-            data["osmium_ema"] = osmium_ema
+            result["ASH_COATED_OSMIUM"] = self._trade_osmium(state)
 
         # ── Pepper Root ──
         if "INTARIAN_PEPPER_ROOT" in state.order_depths:
