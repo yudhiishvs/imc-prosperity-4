@@ -1,0 +1,413 @@
+{
+  "claims": [
+    {
+      "claim": "Round 2 dataset size by product is known from raw CSVs.",
+      "status": "VERIFIED",
+      "evidence": "prices_round_2_day_*.csv and trades_round_2_day_*.csv",
+      "values": {
+        "price_counts": {
+          "ASH_COATED_OSMIUM": {
+            "-1": 10000,
+            "0": 10000,
+            "1": 10000
+          },
+          "INTARIAN_PEPPER_ROOT": {
+            "-1": 10000,
+            "0": 10000,
+            "1": 10000
+          }
+        },
+        "trade_counts": {
+          "ASH_COATED_OSMIUM": {
+            "-1": 459,
+            "0": 471,
+            "1": 465
+          },
+          "INTARIAN_PEPPER_ROOT": {
+            "-1": 331,
+            "0": 332,
+            "1": 333
+          }
+        }
+      }
+    },
+    {
+      "claim": "Pepper has near-deterministic upward trend around +0.1 per tick across days.",
+      "status": "VERIFIED",
+      "evidence": "Linear fit on Pepper mid_price vs timestamp from raw CSVs.",
+      "values": {
+        "slope_per_tick": {
+          "-1": 0.09999958408901011,
+          "0": 0.09999791389282224,
+          "1": 0.10000431304622065
+        },
+        "r2": {
+          "-1": 0.9999421967835974,
+          "0": 0.9999328980858727,
+          "1": 0.9999224513456959
+        }
+      }
+    },
+    {
+      "claim": "Ash has low drift relative to Pepper and weaker linear fit.",
+      "status": "VERIFIED",
+      "evidence": "Linear fit on Ash mid_price vs timestamp from raw CSVs.",
+      "values": {
+        "slope_per_tick": {
+          "-1": -5.3014480664251454e-05,
+          "0": 0.00015712065724696073,
+          "1": -0.0007125760573672222
+        },
+        "r2": {
+          "-1": 0.0011740207905829303,
+          "0": 0.006422444200632871,
+          "1": 0.16791525250216144
+        }
+      }
+    },
+    {
+      "claim": "Spread and depth level presence can be measured directly from raw CSVs.",
+      "status": "VERIFIED",
+      "evidence": "Best spread and level presence computed from price snapshots.",
+      "values": {
+        "spread_median": {
+          "ASH_COATED_OSMIUM": {
+            "-1": 16.0,
+            "0": 16.0,
+            "1": 16.0
+          },
+          "INTARIAN_PEPPER_ROOT": {
+            "-1": 13.0,
+            "0": 14.0,
+            "1": 15.0
+          }
+        },
+        "level_presence_two_sided": {
+          "ASH_COATED_OSMIUM": {
+            "day_-1_L1": 0.9237,
+            "day_-1_L2": 0.4271,
+            "day_-1_L3": 0.0,
+            "day_0_L1": 0.9257,
+            "day_0_L2": 0.4228,
+            "day_0_L3": 0.0,
+            "day_1_L1": 0.9214,
+            "day_1_L2": 0.43,
+            "day_1_L3": 0.0
+          },
+          "INTARIAN_PEPPER_ROOT": {
+            "day_-1_L1": 0.9246,
+            "day_-1_L2": 0.4144,
+            "day_-1_L3": 0.0,
+            "day_0_L1": 0.923,
+            "day_0_L2": 0.415,
+            "day_0_L3": 0.0,
+            "day_1_L1": 0.9248,
+            "day_1_L2": 0.42,
+            "day_1_L3": 0.0
+          }
+        },
+        "level_presence_any_side": {
+          "ASH_COATED_OSMIUM": {
+            "day_-1_L1": 0.9985,
+            "day_-1_L2": 0.8755,
+            "day_-1_L3": 0.0493,
+            "day_0_L1": 0.9984,
+            "day_0_L2": 0.8794,
+            "day_0_L3": 0.0477,
+            "day_1_L1": 0.9978,
+            "day_1_L2": 0.885,
+            "day_1_L3": 0.0467
+          },
+          "INTARIAN_PEPPER_ROOT": {
+            "day_-1_L1": 0.9987,
+            "day_-1_L2": 0.8705,
+            "day_-1_L3": 0.03,
+            "day_0_L1": 0.9982,
+            "day_0_L2": 0.8701,
+            "day_0_L3": 0.0282,
+            "day_1_L1": 0.9984,
+            "day_1_L2": 0.8751,
+            "day_1_L3": 0.0303
+          }
+        }
+      }
+    },
+    {
+      "claim": "L1 OIM has weak next-tick predictive power in current checks.",
+      "status": "VERIFIED",
+      "evidence": "Pearson corr(L1 OIM, 1-step mid return) on each day.",
+      "values": {
+        "l1_oim_corr_1step": {
+          "ASH_COATED_OSMIUM": {
+            "-1": 0.004316884060679547,
+            "0": -0.0025997040878207533,
+            "1": 0.020386907471451214
+          },
+          "INTARIAN_PEPPER_ROOT": {
+            "-1": 0.0033065275578082363,
+            "0": 0.0038858766760970225,
+            "1": -0.011174712958994963
+          }
+        }
+      }
+    },
+    {
+      "claim": "Ash L2 persistence structure (including large-L2 threshold) is measurable from raw data.",
+      "status": "VERIFIED",
+      "evidence": "Round 2 Ash price/trade CSVs with large-L2 defined as bid_vol_2 + ask_vol_2 >= 48; includes both prev-large-L2 and prev-any-L2 decompositions.",
+      "values": {
+        "ticks_with_any_l2": 26399,
+        "ticks_with_large_l2": 7466,
+        "large_l2_breakdown_prev_large_l2": {
+          "new_l2_trade": 279,
+          "new_l2_no_trade": 5341,
+          "resting_l2_trade": 95,
+          "resting_l2_no_trade": 1751
+        },
+        "large_l2_breakdown_prev_any_l2": {
+          "new_l2_trade": 53,
+          "new_l2_no_trade": 902,
+          "resting_l2_trade": 321,
+          "resting_l2_no_trade": 6190
+        }
+      }
+    },
+    {
+      "claim": "Osmium hold-1 probe recovers continuous server mark path from PnL + buy price.",
+      "status": "VERIFIED",
+      "evidence": "/Users/vedant/Quant/Prosperity4/imc-prosperity-4/vedant/round_2_analysis/buy_1_osmium/340214.log",
+      "values": {
+        "entry_timestamp": 0,
+        "inferred_buy_price": 10016.0,
+        "n_post_entry_ticks": 999,
+        "mark_mean": 10004.136192833459,
+        "mark_std": 2.777281735024437,
+        "mark_min": 9998.6611328125,
+        "mark_max": 10010.802734375,
+        "lag1_mark_autocorr": 0.9934728025144234,
+        "dmark_mean": -0.0053534803982965935,
+        "dmark_std": 0.3173085555199381,
+        "dmark_min": -0.9990234375,
+        "dmark_max": 1.046875,
+        "mark_on_1_over_1024_grid": true,
+        "dmark_on_1_over_1024_grid": true,
+        "corr_mark_mid": 0.9010895309254761,
+        "corr_dmark_dmid": 0.16574484293032388,
+        "inside_best_spread_rate": 0.9119119119119119,
+        "below_best_bid_rate": 0.009009009009009009,
+        "above_best_ask_rate": 0.021021021021021023
+      }
+    },
+    {
+      "claim": "Osmium L1 offset-pair regimes relative to round(server_mark) are measurable.",
+      "status": "VERIFIED",
+      "evidence": "/Users/vedant/Quant/Prosperity4/imc-prosperity-4/vedant/round_2_analysis/buy_1_osmium/340214.log",
+      "values": {
+        "top_offset_pair_shares": {
+          "(-8, 8)": 0.6212765957446809,
+          "(-10, 8)": 0.07234042553191489,
+          "(-11, 8)": 0.07021276595744681,
+          "(-8, 10)": 0.06063829787234042,
+          "(-8, 11)": 0.059574468085106386,
+          "(-11, 10)": 0.01702127659574468,
+          "(-8, 2)": 0.01276595744680851,
+          "(-8, -2)": 0.01276595744680851,
+          "(-3, 8)": 0.011702127659574468,
+          "(-2, 8)": 0.011702127659574468,
+          "(-10, 11)": 0.009574468085106383,
+          "(-8, 1)": 0.007446808510638298
+        }
+      }
+    },
+    {
+      "claim": "Two available Osmium hold-1 runs represent independent hidden-state samples.",
+      "status": "PARTIAL",
+      "evidence": "/Users/vedant/Quant/Prosperity4/imc-prosperity-4/vedant/round_2_analysis/buy_1_osmium/340214.log vs /Users/vedant/Quant/Prosperity4/imc-prosperity-4/vedant/round_2_analysis/hold_1_unit/296479.log",
+      "values": {
+        "same_tick_path": true,
+        "interpretation": "same path -> useful consistency check but not independent sample"
+      }
+    },
+    {
+      "claim": "Pepper hold-1 probe recovers continuous server mark path from PnL + buy price.",
+      "status": "VERIFIED",
+      "evidence": "/Users/vedant/Quant/Prosperity4/imc-prosperity-4/vedant/round_2_analysis/hold_1_pepper_logs/343258.log",
+      "values": {
+        "entry_timestamp": 0,
+        "inferred_buy_price": 13007.0,
+        "n_post_entry_ticks": 999,
+        "mark_mean": 13050.0,
+        "mark_std": 28.838632177075226,
+        "mark_min": 13000.099609375,
+        "mark_max": 13099.900390625,
+        "lag1_mark_autocorr": 0.999999999862028,
+        "dmark_mean": 0.10000078281563127,
+        "dmark_std": 0.0004785750900487493,
+        "dmark_min": 0.099609375,
+        "dmark_max": 0.1005859375,
+        "mark_on_1_over_1024_grid": true,
+        "corr_mark_mid": 0.9987095597528384,
+        "inside_best_spread_rate": 0.8858858858858859,
+        "below_best_bid_rate": 0.02002002002002002,
+        "above_best_ask_rate": 0.01701701701701702
+      }
+    },
+    {
+      "claim": "Pepper L1 offset-pair regimes relative to round(server_mark) are measurable.",
+      "status": "VERIFIED",
+      "evidence": "/Users/vedant/Quant/Prosperity4/imc-prosperity-4/vedant/round_2_analysis/hold_1_pepper_logs/343258.log",
+      "values": {
+        "top_offset_pair_shares": {
+          "(-7, 7)": 0.5982627578718784,
+          "(-7, 10)": 0.0998914223669924,
+          "(-10, 7)": 0.06297502714440825,
+          "(-7, 11)": 0.04234527687296417,
+          "(-11, 7)": 0.03691639522258415,
+          "(-7, 8)": 0.033659066232356136,
+          "(-8, 7)": 0.03040173724212812,
+          "(-10, 11)": 0.010857763300760043,
+          "(-7, -4)": 0.008686210640608035,
+          "(-11, 10)": 0.008686210640608035,
+          "(-8, 10)": 0.00760043431053203,
+          "(3, 7)": 0.00760043431053203
+        }
+      }
+    },
+    {
+      "claim": "Osmium hold-then-flat behavior is validated via controlled flip probe.",
+      "status": "VERIFIED",
+      "evidence": "/Users/vedant/Quant/Prosperity4/imc-prosperity-4/vedant/round_2_analysis/flip_1_osmium_logs/343375.log",
+      "values": {
+        "entry_timestamp": 0,
+        "exit_timestamp": 20000,
+        "inferred_buy_price": 10016.0,
+        "inferred_sell_price": 9996.0,
+        "n_hold_ticks": 200,
+        "n_flat_ticks": 799,
+        "hold_mark_mean": 10007.056440429687,
+        "hold_mark_std": 1.984307380299117,
+        "hold_dmark_mean": -0.022235199434673367,
+        "hold_dmark_std": 0.31378583563427154,
+        "hold_mark_on_1_over_1024_grid": true,
+        "flat_pnl_std": 0.0,
+        "flat_pnl_range": 0.0,
+        "hold_overlap_match_vs_hold1_osmium": 1.0
+      }
+    },
+    {
+      "claim": "Dual hold probe recovers both product marks in one run.",
+      "status": "VERIFIED",
+      "evidence": "/Users/vedant/Quant/Prosperity4/imc-prosperity-4/vedant/round_2_analysis/dual_hold_logs/343414.log",
+      "values": {
+        "ASH_COATED_OSMIUM": {
+          "entry_timestamp": 0,
+          "inferred_buy_price": 10019.0,
+          "n_post_entry_ticks": 999,
+          "mark_mean": 10004.136192833459,
+          "mark_std": 2.777281735024437,
+          "dmark_mean": -0.0053534803982965935,
+          "dmark_std": 0.3173085555199381,
+          "mark_on_1_over_1024_grid": true
+        },
+        "INTARIAN_PEPPER_ROOT": {
+          "entry_timestamp": 0,
+          "inferred_buy_price": 13007.0,
+          "n_post_entry_ticks": 999,
+          "mark_mean": 13050.0,
+          "mark_std": 28.838632177075226,
+          "dmark_mean": 0.10000078281563127,
+          "dmark_std": 0.0004785750900487493,
+          "mark_on_1_over_1024_grid": true
+        },
+        "match_vs_single_product_probes": {
+          "osmium_match_rate": 1.0,
+          "pepper_match_rate": 1.0
+        }
+      }
+    },
+    {
+      "claim": "Pepper mark has partial reconstruction from non-probe submission logs.",
+      "status": "PARTIAL",
+      "evidence": "/Users/vedant/Quant/Prosperity4/imc-prosperity-4/308866/308866.log, /Users/vedant/Quant/Prosperity4/imc-prosperity-4/best_strat_vedant/best_strat_vedant.log, /Users/vedant/Quant/Prosperity4/imc-prosperity-4/best_strat_yudhiish/332493.log",
+      "values": {
+        "reconstructions": {
+          "308866.log": {
+            "log_path": "/Users/vedant/Quant/Prosperity4/imc-prosperity-4/308866/308866.log",
+            "submission_trade_rows": 17,
+            "ticks_nonzero_position": 1000,
+            "max_abs_position": 80,
+            "mark_mean": 13049.963907674279,
+            "mark_std": 28.839494349246692,
+            "mark_min": 13000.3,
+            "mark_max": 13099.9,
+            "lag1_mark_autocorr": 0.9999758417338698,
+            "dmark_mean": 0.08998998998998962,
+            "dmark_std": 0.2009222670047195,
+            "mark_on_1_over_1024_grid": true,
+            "corr_mark_mid": 0.9987266393791806,
+            "mean_abs_mark_minus_mid": 0.8191236661030392,
+            "inside_best_spread_rate": 0.9616648411829135,
+            "stable_ticks": 985,
+            "stable_dmark_mean": 0.10121951219512232,
+            "stable_dmark_std": 0.011889254202656107,
+            "stable_slope_per_tick": 0.10000000001034304
+          },
+          "best_strat_vedant.log": {
+            "log_path": "/Users/vedant/Quant/Prosperity4/imc-prosperity-4/best_strat_vedant/best_strat_vedant.log",
+            "submission_trade_rows": 46,
+            "ticks_nonzero_position": 999,
+            "max_abs_position": 80,
+            "mark_mean": 13050.01112294048,
+            "mark_std": 28.806284501507427,
+            "mark_min": 13000.2001953125,
+            "mark_max": 13099.9,
+            "lag1_mark_autocorr": 0.999954228293186,
+            "dmark_mean": 0.09308617234468901,
+            "dmark_std": 0.27561524456184733,
+            "mark_on_1_over_1024_grid": true,
+            "corr_mark_mid": 0.9987782922155491,
+            "mean_abs_mark_minus_mid": 0.8291441176693966,
+            "inside_best_spread_rate": 0.9630032644178455,
+            "stable_ticks": 953,
+            "stable_dmark_mean": 0.10472668559611306,
+            "stable_dmark_std": 0.023984022108948642,
+            "stable_slope_per_tick": 0.09999999779894185
+          },
+          "332493.log": {
+            "log_path": "/Users/vedant/Quant/Prosperity4/imc-prosperity-4/best_strat_yudhiish/332493.log",
+            "submission_trade_rows": 40,
+            "ticks_nonzero_position": 999,
+            "max_abs_position": 80,
+            "mark_mean": 13050.012517402522,
+            "mark_std": 28.80165811553964,
+            "mark_min": 13000.4,
+            "mark_max": 13099.90064102564,
+            "lag1_mark_autocorr": 0.9999825308461944,
+            "dmark_mean": 0.09308681465495056,
+            "dmark_std": 0.1704684201063836,
+            "mark_on_1_over_1024_grid": true,
+            "corr_mark_mid": 0.9986369349145646,
+            "mean_abs_mark_minus_mid": 0.8511110773705353,
+            "inside_best_spread_rate": 0.956989247311828,
+            "stable_ticks": 959,
+            "stable_dmark_mean": 0.10386288207269417,
+            "stable_dmark_std": 0.026169380801206288,
+            "stable_slope_per_tick": 0.09999999747731089
+          }
+        }
+      }
+    },
+    {
+      "claim": "Current Round 2 Rust simulator parameters match inferred live bot transfer functions.",
+      "status": "ASSUMPTION",
+      "evidence": "No full actual-vs-sim validation against inferred layer rules.",
+      "values": {}
+    },
+    {
+      "claim": "Trade-flow conditionals are fully identified by current scripts.",
+      "status": "ASSUMPTION",
+      "evidence": "Most existing scripts summarize marginals and selected probes only.",
+      "values": {}
+    }
+  ]
+}

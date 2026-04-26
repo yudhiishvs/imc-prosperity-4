@@ -1,80 +1,138 @@
-import json
-import io
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
 import pandas as pd
 
-def main():
-    log_file = '/Users/vedant/Quant/Prosperity4/imc-prosperity-4/snipe/298967.log'
-    print(f"Loading {log_file}...")
-    
-    with open(log_file, 'r') as f:
-        data = json.load(f)
-        
-    csv_data = data['activitiesLog']
-    df = pd.read_csv(io.StringIO(csv_data), sep=';')
-    osmium = df[df['product'] == 'ASH_COATED_OSMIUM'].copy()
-    osmium.sort_values(by='timestamp', inplace=True)
-    osmium.reset_index(drop=True, inplace=True)
+from submission_log_utils import load_submission_log
 
-    trade_data = data.get('tradeHistory', '')
-    if isinstance(trade_data, str):
-        trades = pd.read_csv(io.StringIO(trade_data), sep=';')
-    else:
-        trades = pd.DataFrame(trade_data)
-        
-    sym_col = 'symbol' if 'symbol' in trades.columns else 'product'
-    os_trades = trades[trades[sym_col] == 'ASH_COATED_OSMIUM'].copy()
-    
-    print("=== Bot Inventory Refill Analysis ===")
-    # We want to see if we snipe the volume, does the next tick replenish the full expected volume?
-    # Expected Volume is around 13-15 for the inside levels.
-    
-    # Let's see the sequence of volumes when prices stay the same.
-    prices_bids = osmium['bid_price_1']
-    vols_bids = osmium['bid_volume_1']
-    
-    refills_count = 0
-    total_snipes = 0
-    
-    snipes = os_trades[abs(os_trades['quantity']) > 1]
-    
-    for _, snipe in snipes.iterrows():
-        ts = snipe['timestamp']
-        price = snipe['price']
-        qty = abs(snipe['quantity'])
-        
-        # Look at the tick after the snipe
-        next_tick = osmium[osmium['timestamp'] > ts].head(1)
-        if len(next_tick) == 0:
+
+def _product_trades(trades: pd.DataFrame, product: str) -> pd.DataFrame:
+    if trades.empty:
+        return trades
+    if "symbol" in trades.columns:
+        return trades[trades["symbol"] == product].copy()
+    if "product" in trades.columns:
+        return trades[trades["product"] == product].copy()
+    return pd.DataFrame()
+
+
+def _is_submission_fill(row: pd.Series) -> bool:
+    return row.get("buyer") == "SUBMISSION" or row.get("seller") == "SUBMISSION"
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Analyze snipe and refill behavior from a submission artifact."
+    )
+    parser.add_argument("log_file", help="Path to submission .log or .json")
+    parser.add_argument("--product", default="ASH_COATED_OSMIUM")
+    args = parser.parse_args()
+
+    log = load_submission_log(Path(args.log_file).expanduser().resolve())
+    activities = log.activities
+    if activities.empty:
+        raise ValueError("activitiesLog is empty or could not be parsed.")
+
+    product = args.product
+    book = activities[activities["product"] == product].copy()
+    if book.empty:
+        raise ValueError(f"No rows found for {product}.")
+    book = book.sort_values("timestamp").reset_index(drop=True)
+    by_ts = book.set_index("timestamp")
+
+    trades = _product_trades(log.trades, product)
+    if trades.empty:
+        print("No product trades found in tradeHistory.")
+        return
+
+    submission = trades[trades.apply(_is_submission_fill, axis=1)].copy()
+    if submission.empty:
+        print("No submission fills found for this product.")
+        return
+
+    submission["timestamp"] = submission["timestamp"].astype(int)
+    submission["price"] = submission["price"].astype(float)
+    submission["quantity"] = submission["quantity"].astype(int)
+
+    total_fills = len(submission)
+    snipe_like = submission[submission["quantity"].abs() > 1].copy()
+    penny_like = submission[submission["quantity"].abs() == 1].copy()
+
+    refill_hits = 0
+    refill_trials = 0
+
+    for _, fill in snipe_like.iterrows():
+        ts = int(fill["timestamp"])
+        next_rows = book[book["timestamp"] > ts].head(1)
+        if next_rows.empty:
             continue
-            
-        next_ts = next_tick['timestamp'].values[0]
-        bid1 = next_tick['bid_price_1'].values[0]
-        bidv1 = next_tick['bid_volume_1'].values[0]
-        ask1 = next_tick['ask_price_1'].values[0]
-        askv1 = next_tick['ask_volume_1'].values[0]
-        
-        total_snipes += 1
-        
-        # If we sniped bid, check if bid re-appeared at same price with full volume
-        if snipe['quantity'] < 0: # we sold to their bid
-            if bid1 == price:
-               if bidv1 > qty: # They refilled more than what we took
-                   refills_count += 1
-        else: # we bought from their ask
-            if ask1 == price:
-               if askv1 > qty:
-                   refills_count += 1
-                   
-    print(f"Total Snipes analyzed: {total_snipes}")
-    print(f"Number of times the bot refilled its volume at the same price immediately: {refills_count}")
-    print(f"Refill probability: {refills_count / total_snipes:.2%}")
+        nxt = next_rows.iloc[0]
+        price = float(fill["price"])
+        qty = abs(int(fill["quantity"]))
+        refill_trials += 1
 
-    print("\n=== Penny Jump Analysis ===")
-    jumping_trades = os_trades[abs(os_trades['quantity']) == 1]
-    print(f"We posted {len(osmium)} penny jump orders.")
-    print(f"We actually got filled on our penny jump orders {len(jumping_trades)} times.")
-    print("If we get filled on our passive orders, it means the bot DID NOT aggressively penny-jump us to take priority.")
-    print("If we rarely get filled, it means the bot stepped in front of us.")
-    
+        if fill.get("seller") == "SUBMISSION":
+            # We sold into bid, check if best bid at same price comes back with depth.
+            if pd.notna(nxt["bid_price_1"]) and float(nxt["bid_price_1"]) == price and float(nxt["bid_volume_1"]) > qty:
+                refill_hits += 1
+        elif fill.get("buyer") == "SUBMISSION":
+            # We bought from ask, check if best ask at same price comes back with depth.
+            ask_vol = abs(float(nxt["ask_volume_1"])) if pd.notna(nxt["ask_volume_1"]) else 0.0
+            if pd.notna(nxt["ask_price_1"]) and float(nxt["ask_price_1"]) == price and ask_vol > qty:
+                refill_hits += 1
+
+    print("=== SNIPE SUMMARY ===")
+    print(f"log_file: {log.path}")
+    print(f"product: {product}")
+    print(f"total_submission_fills: {total_fills}")
+    print(f"snipe_like_fills_abs_qty_gt_1: {len(snipe_like)}")
+    print(f"penny_like_fills_abs_qty_eq_1: {len(penny_like)}")
+
+    print("\n=== REFILL CHECK ===")
+    print(f"refill_trials: {refill_trials}")
+    print(f"refill_hits_same_price_next_tick: {refill_hits}")
+    if refill_trials > 0:
+        print(f"refill_rate: {refill_hits / refill_trials:.2%}")
+    else:
+        print("refill_rate: N/A")
+
+    # Classify fills as aggressive vs passive against visible L1 at fill timestamp.
+    aggressive = 0
+    passive = 0
+    unknown = 0
+    for _, fill in submission.iterrows():
+        ts = int(fill["timestamp"])
+        if ts not in by_ts.index:
+            unknown += 1
+            continue
+        row = by_ts.loc[ts]
+        if isinstance(row, pd.DataFrame):
+            row = row.iloc[0]
+        price = float(fill["price"])
+
+        bid = float(row["bid_price_1"]) if pd.notna(row["bid_price_1"]) else None
+        ask = float(row["ask_price_1"]) if pd.notna(row["ask_price_1"]) else None
+
+        if fill.get("buyer") == "SUBMISSION":
+            if ask is not None and price >= ask:
+                aggressive += 1
+            else:
+                passive += 1
+        elif fill.get("seller") == "SUBMISSION":
+            if bid is not None and price <= bid:
+                aggressive += 1
+            else:
+                passive += 1
+        else:
+            unknown += 1
+
+    print("\n=== FILL TYPE VS VISIBLE L1 ===")
+    print(f"aggressive_like: {aggressive}")
+    print(f"passive_like: {passive}")
+    print(f"unknown: {unknown}")
+
+
 if __name__ == "__main__":
     main()

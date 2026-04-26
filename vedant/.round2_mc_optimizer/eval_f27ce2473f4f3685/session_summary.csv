@@ -1,0 +1,3 @@
+session_id,total_pnl,ash_coated_osmium_pnl,intarian_pepper_root_pnl,ash_coated_osmium_position,intarian_pepper_root_position,ash_coated_osmium_cash,intarian_pepper_root_cash,total_slope_per_step,total_r2,ash_coated_osmium_slope_per_step,ash_coated_osmium_r2,intarian_pepper_root_slope_per_step,intarian_pepper_root_r2
+0,3223.140625,612.484375,2610.65625,-48,80,481159.0,-1044587.0,8.967125952557224,0.996842432728204,1.0714666257435594,0.8873179447413969,7.895659326813665,0.9972266123545785
+1,3394.931640625,725.634765625,2669.296875,-50,80,501175.0,-1044530.0,9.659848569823826,0.9968168090327041,1.7094703076330262,0.9270037054651291,7.950378262190799,0.9989261942970731

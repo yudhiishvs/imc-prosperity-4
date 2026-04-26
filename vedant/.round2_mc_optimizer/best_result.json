@@ -1,0 +1,78 @@
+{
+  "product": "pepper",
+  "objective": "pepper_mean",
+  "best_score": 2646.4765625,
+  "best_metrics": {
+    "mean_total": 3315.5361328125,
+    "std_total": 130.66698025078676,
+    "sharpe_total": 25.373940122049593,
+    "mean_osmium": 669.0595703125,
+    "mean_pepper": 2646.4765625
+  },
+  "best_params": {
+    "PEPPER_SLOPE": -0.000389
+  },
+  "runs": [
+    {
+      "run_index": 1,
+      "seed": 20260420,
+      "best_score": 2646.4765625,
+      "best_metrics": {
+        "mean_total": 3315.5361328125,
+        "std_total": 130.66698025078676,
+        "sharpe_total": 25.373940122049593,
+        "mean_osmium": 669.0595703125,
+        "mean_pepper": 2646.4765625
+      },
+      "best_params": {
+        "PEPPER_SLOPE": -0.000389
+      },
+      "history": [
+        {
+          "iteration": 1,
+          "score": 2636.9765625,
+          "best_score": 2636.9765625,
+          "no_improve": 0,
+          "mode": "normal"
+        },
+        {
+          "iteration": 2,
+          "score": 2639.9765625,
+          "best_score": 2639.9765625,
+          "no_improve": 0,
+          "mode": "normal"
+        },
+        {
+          "iteration": 3,
+          "score": 2646.4765625,
+          "best_score": 2646.4765625,
+          "no_improve": 0,
+          "mode": "normal"
+        },
+        {
+          "iteration": 4,
+          "score": 2646.4765625,
+          "best_score": 2646.4765625,
+          "no_improve": 1,
+          "mode": "normal"
+        },
+        {
+          "iteration": 5,
+          "score": 2646.4765625,
+          "best_score": 2646.4765625,
+          "no_improve": 1,
+          "mode": "jitter"
+        }
+      ]
+    }
+  ],
+  "config": {
+    "sessions": 2,
+    "ticks_per_day": 400,
+    "days_per_session": 1,
+    "runs": 1,
+    "patience": 1,
+    "jitter_multiplier": 2.5,
+    "seed": 20260420
+  }
+}

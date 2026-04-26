@@ -1,89 +1,82 @@
-import json
-import io
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
 import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
 
-def main():
-    log_file = '/Users/vedant/Quant/Prosperity4/imc-prosperity-4/normal_quotes/297739.log'
-    print(f"Loading {log_file}...")
-    
-    with open(log_file, 'r') as f:
-        data = json.load(f)
-        
-    # --- Part 1: Mid Price & Mean Revalidation ---
-    csv_data = data['activitiesLog']
-    df = pd.read_csv(io.StringIO(csv_data), sep=';')
-    osmium = df[df['product'] == 'ASH_COATED_OSMIUM'].copy()
-    osmium.sort_values(by='timestamp', inplace=True)
-    
-    valid_mids = osmium[osmium['mid_price'] > 5000]['mid_price']
-    mean_mid = valid_mids.mean()
-    std_mid = valid_mids.std()
-    min_mid = valid_mids.min()
-    max_mid = valid_mids.max()
-    print("=== ACTIVITIES LOG STATS (Revalidation) ===")
-    print(f"Mean Mid Price (valid ticks): {mean_mid:.4f}")
-    print(f"Std Dev Mid Price (valid ticks): {std_mid:.4f}")
-    print(f"Min Mid Price: {min_mid:.4f}")
-    print(f"Max Mid Price: {max_mid:.4f}")
-    
-    # --- Part 2: Trade History & Extreme Fills ---
-    trade_data = data.get('tradeHistory', '')
-    if len(trade_data) == 0:
-        print("No tradeHistory data found!")
-        return
-        
-    if isinstance(trade_data, str):
-        try:
-            trades = pd.read_csv(io.StringIO(trade_data), sep=';')
-        except:
-            print("Failed to parse string trade history.")
-            return
-    else:
-        trades = pd.DataFrame(trade_data)
-        
-    sym_col = 'symbol' if 'symbol' in trades.columns else 'product' if 'product' in trades.columns else None
-    if sym_col is None:
-        print("Could not find product/symbol column in tradeHistory.")
-        return
+from submission_log_utils import load_submission_log
 
-    os_trades = trades[trades[sym_col] == 'ASH_COATED_OSMIUM'].copy()
-    if len(os_trades) == 0:
-        print("No osmium trades found in history.")
-        return
 
-    print("\n=== FILL DYNAMICS ===")
-    print(f"Total Osmium Trades: {len(os_trades)}")
-    print(f"Absolute Minimum executed trade price: {os_trades['price'].min()}")
-    print(f"Absolute Maximum executed trade price: {os_trades['price'].max()}")
-    
-    # To determine if we actually posted passive quotes or just hit limits, 
-    # we just need to see if we got any fills at our internal random generation range [1, 20] from 10004.
-    # We posted bids at 9984 to 10003. And asks at 10005 to 10024.
-    
-    # Filter out the core "sweep" zones where the natural book sits (usually ~ 9998-10001 bid, 10007-10010 ask)
-    # Wait, any execution below 9997 is a great sign the bots stepped down to hit our probe bid!
-    # Any execution above 10011 is a great sign the bots stepped up to hit our probe ask!
-    
-    down_probes = os_trades[os_trades['price'] <= 9995]
-    up_probes = os_trades[os_trades['price'] >= 10013]
-    
-    print(f"\n--- Fills extending downwards (Price <= 9995) ---")
-    if len(down_probes) > 0:
-        print(down_probes['price'].value_counts().sort_index(ascending=False))
+def _product_trades(trades: pd.DataFrame, product: str) -> pd.DataFrame:
+    if trades.empty:
+        return trades
+    if "symbol" in trades.columns:
+        return trades[trades["symbol"] == product].copy()
+    if "product" in trades.columns:
+        return trades[trades["product"] == product].copy()
+    return pd.DataFrame()
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Analyze a normal-quote submission log for Round 2 products."
+    )
+    parser.add_argument("log_file", help="Path to submission .log or .json")
+    parser.add_argument("--product", default="ASH_COATED_OSMIUM")
+    args = parser.parse_args()
+
+    log = load_submission_log(Path(args.log_file).expanduser().resolve())
+    activities = log.activities
+
+    if activities.empty:
+        raise ValueError("activitiesLog is empty or could not be parsed.")
+
+    product = args.product
+    sub = activities[activities["product"] == product].copy()
+    if sub.empty:
+        raise ValueError(f"No rows found for {product}.")
+    sub = sub.sort_values("timestamp").reset_index(drop=True)
+
+    mid_all = sub["mid_price"].dropna()
+    valid_mid = mid_all[mid_all > 0]
+    print("=== ACTIVITY SUMMARY ===")
+    print(f"log_file: {log.path}")
+    print(f"product: {product}")
+    print(f"n_ticks: {len(sub)}")
+    print(f"n_mid_all: {len(mid_all)}")
+    print(f"n_mid_valid_gt_0: {len(valid_mid)}")
+    print(f"mid_zero_or_missing_rate: {(1 - len(valid_mid) / len(sub)):.4f}")
+    if len(valid_mid) > 0:
+        print(f"mid_mean_valid: {valid_mid.mean():.6f}")
+        print(f"mid_std_valid: {valid_mid.std(ddof=0):.6f}")
+        print(f"mid_min_valid: {valid_mid.min():.6f}")
+        print(f"mid_max_valid: {valid_mid.max():.6f}")
+
+    bids = sub[["bid_price_1", "bid_price_2", "bid_price_3"]].max(axis=1, skipna=True)
+    asks = sub[["ask_price_1", "ask_price_2", "ask_price_3"]].min(axis=1, skipna=True)
+    spread = asks - bids
+    print("\n=== BOOK SUMMARY ===")
+    print(f"best_spread_mean: {spread.mean():.6f}")
+    print(f"best_spread_median: {spread.median():.6f}")
+    print(f"best_spread_min: {spread.min():.6f}")
+    print(f"best_spread_max: {spread.max():.6f}")
+
+    trades = _product_trades(log.trades, product)
+    print("\n=== TRADE SUMMARY ===")
+    print(f"n_trades: {len(trades)}")
+    if not trades.empty:
+        prices = trades["price"].astype(float)
+        print(f"trade_price_min: {prices.min():.6f}")
+        print(f"trade_price_max: {prices.max():.6f}")
+        print(f"trade_price_mean: {prices.mean():.6f}")
+        print("top_trade_prices:")
+        vc = prices.value_counts().head(15)
+        for px, n in vc.items():
+            print(f"  price={px:.3f} count={int(n)}")
     else:
-        print("None.")
-        
-    print(f"\n--- Fills extending upwards (Price >= 10013) ---")
-    if len(up_probes) > 0:
-        print(up_probes['price'].value_counts().sort_index())
-    else:
-        print("None.")
-        
-    print("\n--- Core Fills Profile (9996 to 10012) ---")
-    core_probes = os_trades[(os_trades['price'] > 9995) & (os_trades['price'] < 10013)]
-    print(core_probes['price'].value_counts().sort_index())
+        print("No tradeHistory rows parsed for this artifact.")
+
 
 if __name__ == "__main__":
     main()

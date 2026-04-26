@@ -23,7 +23,7 @@ from typing import List, Dict, Tuple
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-STRATEGY_PATH = REPO_ROOT / "vedant" / "strategy.py"
+STRATEGY_PATH = REPO_ROOT / "best_strat_yudhiish" / "best_strat_yudhiish.py"
 WORKER_DIR = REPO_ROOT / ".osmium_mc_optimizer"
 
 # ── Configurable Global Variables ──────────────────────────────────────
@@ -87,19 +87,19 @@ class ParamDef:
 
 def get_params() -> List[ParamDef]:
     return [
-        ParamDef("OSMIUM_EMA_ALPHA",             False,  0.001, 0.001, 0.0001, (0.0001, 0.1)),
-        ParamDef("OSMIUM_INNER_OFFSET",           True,   10,    1,    1,    (0, 10)),
-        ParamDef("OSMIUM_OUTER_OFFSET",           True,   10,    2,    1,    (0, 30)),
-        ParamDef("OSMIUM_VOLUME_SKEW_AGGRESSION", False,  1.5,   0.2,  0.05, (0.0, 3.0)),
-        ParamDef("OSMIUM_OIM_SHIFT",              True,   0,     1,    1,    (0, 5)),
-        ParamDef("OSMIUM_BASE_QUOTE_SIZE",        True,   20,    5,    1,    (10, 80)),
-        ParamDef("OSMIUM_L2_QUOTE_SIZE",          True,   40,    5,    1,    (10, 80)),
-        ParamDef("OSMIUM_KILL_SWITCH_THRESHOLD",  True,   80,    5,    1,    (40, 80)),
-        ParamDef("OSMIUM_OIM_THRESHOLD",          False,  0.9,   0.05, 0.01, (0.0, 0.99)),
-        ParamDef("OSMIUM_OIM_FADE_SCALE",         False,  0.0,   0.1,  0.05, (0.0, 1.5)),
-        ParamDef("OSMIUM_OIM_EDGE_SCALE",         False,  1.0,   0.2,  0.1,  (0.0, 5.0)),
-        ParamDef("OSMIUM_OIM_TAKE_SCALE",         False,  1.0,   0.2,  0.1,  (0.0, 8.0)),
-        ParamDef("OSMIUM_FV_TETHER_SCALE",        False,  0.05,  0.01, 0.005, (0.0, 0.5)),
+        ParamDef("OSMIUM_EMA_ALPHA",             False,  0.081, 0.005, 0.001, (0.0001, 0.2)),
+        ParamDef("OSMIUM_INNER_OFFSET",           True,   9,     1,    1,    (0, 15)),
+        ParamDef("OSMIUM_OUTER_OFFSET",           True,   6,     2,    1,    (0, 40)),
+        ParamDef("OSMIUM_VOLUME_SKEW_AGGRESSION", False,  0.823, 0.2,  0.05, (0.0, 5.0)),
+        ParamDef("OSMIUM_OIM_SHIFT",              True,   1,     1,    1,    (0, 10)),
+        ParamDef("OSMIUM_BASE_QUOTE_SIZE",        True,   55,    5,    1,    (10, 100)),
+        ParamDef("OSMIUM_L2_QUOTE_SIZE",          True,   35,    5,    1,    (10, 100)),
+        ParamDef("OSMIUM_KILL_SWITCH_THRESHOLD",  True,   80,    5,    1,    (40, 100)),
+        ParamDef("OSMIUM_OIM_THRESHOLD",          False,  0.067, 0.05, 0.01, (0.0, 0.99)),
+        ParamDef("OSMIUM_OIM_FADE_SCALE",         False,  0.341, 0.1,  0.05, (0.0, 5.0)),
+        ParamDef("OSMIUM_OIM_EDGE_SCALE",         False,  3.789, 0.5,  0.5,  (0.0, 10.0)),
+        ParamDef("OSMIUM_OIM_TAKE_SCALE",         False,  4.526, 0.5,  0.5,  (0.0, 15.0)),
+        ParamDef("OSMIUM_FV_TETHER_SCALE",        False,  0.048, 0.01, 0.05, (0.0, 0.5)),
     ]
 
 # ── Strategy Patching ─────────────────────────────────────────

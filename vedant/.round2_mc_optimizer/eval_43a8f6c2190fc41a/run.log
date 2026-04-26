@@ -1,0 +1,6 @@
+seed=20260420
+algorithm=/Users/vedant/Quant/Prosperity4/imc-prosperity-4/vedant/.round2_mc_optimizer/eval_43a8f6c2190fc41a/strategy_eval.py
+sessions=50
+days_per_session=1
+ticks_per_day=10000
+fused_params=/Users/vedant/Quant/Prosperity4/prosperity4mcbt/round2/calibration/fused_parameters/round2_fused_parameters.json
