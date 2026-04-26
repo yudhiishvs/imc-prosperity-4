@@ -1,0 +1,206 @@
+/* ============================================================
+   Prosperity 4 Dashboard — TradingView / GitHub dark theme
+   ============================================================ */
+
+/* ── Base ──────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  background: #131722;
+  color: #d1d4dc;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter",
+               "JetBrains Mono", monospace, sans-serif;
+  font-size: 13px;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Scrollbars ────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #1e222d; }
+::-webkit-scrollbar-thumb { background: #363c4e; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #4a5168; }
+
+/* ── Tabs (Dash) ───────────────────────────────────────────── */
+.dash-tabs { border-bottom: 1px solid #2a2e39 !important; }
+
+.dash-tab {
+  background: #131722 !important;
+  color: #787b86 !important;
+  border: none !important;
+  border-bottom: 2px solid transparent !important;
+  padding: 8px 20px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.dash-tab:hover { color: #d1d4dc !important; }
+
+.dash-tab--selected {
+  background: #1e222d !important;
+  color: #ffffff !important;
+  border-top: 2px solid #2962ff !important;
+  border-bottom: none !important;
+}
+
+/* ── Dropdown (Select) ─────────────────────────────────────── */
+.Select-control {
+  background: #1e222d !important;
+  border: 1px solid #2a2e39 !important;
+  border-radius: 4px !important;
+  color: #d1d4dc !important;
+  min-height: 30px !important;
+}
+
+.Select-control:hover { border-color: #363c4e !important; }
+
+.Select.is-focused > .Select-control,
+.Select.is-open > .Select-control {
+  border-color: #2962ff !important;
+  box-shadow: 0 0 0 2px rgba(41,98,255,0.2) !important;
+  background: #1e222d !important;
+}
+
+.Select-value-label,
+.Select-placeholder { color: #d1d4dc !important; font-size: 12px !important; }
+.Select-placeholder { color: #787b86 !important; }
+
+.Select-arrow { border-top-color: #787b86 !important; }
+.Select.is-open .Select-arrow { border-bottom-color: #787b86 !important; }
+
+.Select-menu-outer {
+  background: #1e222d !important;
+  border: 1px solid #363c4e !important;
+  border-radius: 4px !important;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5) !important;
+  z-index: 9999 !important;
+  margin-top: 2px !important;
+}
+
+.Select-option {
+  background: #1e222d !important;
+  color: #d1d4dc !important;
+  font-size: 12px !important;
+  padding: 7px 10px !important;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.Select-option:hover,
+.Select-option.is-focused { background: #2a2e39 !important; color: #fff !important; }
+.Select-option.is-selected { background: rgba(41,98,255,0.15) !important; color: #2962ff !important; }
+
+/* ── Radio items & Checkboxes ──────────────────────────────── */
+.radio-group label,
+.checklist-item label,
+input[type="radio"] + label,
+input[type="checkbox"] + label {
+  color: #d1d4dc !important;
+  font-size: 12px !important;
+  cursor: pointer;
+  user-select: none;
+}
+
+input[type="radio"],
+input[type="checkbox"] {
+  accent-color: #2962ff;
+  cursor: pointer;
+}
+
+/* Dash's inline radio/checklist wrapper */
+.dash-radioitems label,
+.dash-checklist label {
+  color: #d1d4dc !important;
+  font-size: 12px !important;
+}
+
+/* ── Slider (rc-slider used by Dash) ───────────────────────── */
+.rc-slider-rail { background: #2a2e39 !important; height: 3px !important; }
+.rc-slider-track { background: #2962ff !important; height: 3px !important; }
+
+.rc-slider-handle {
+  background: #2962ff !important;
+  border: 2px solid #1e222d !important;
+  box-shadow: 0 0 0 2px #2962ff !important;
+  width: 12px !important;
+  height: 12px !important;
+  margin-top: -5px !important;
+  cursor: grab !important;
+}
+
+.rc-slider-handle:hover,
+.rc-slider-handle:active { background: #4a80ff !important; cursor: grabbing !important; }
+
+.rc-slider-mark-text { color: #787b86 !important; font-size: 10px !important; }
+.rc-slider-dot { background: #2a2e39 !important; border-color: #363c4e !important; }
+.rc-slider-dot-active { border-color: #2962ff !important; }
+
+/* Dash slider tooltip */
+.rc-slider-tooltip-inner {
+  background: #363c4e !important;
+  color: #d1d4dc !important;
+  font-size: 11px !important;
+  border-radius: 3px !important;
+  padding: 2px 6px !important;
+  box-shadow: none !important;
+}
+
+/* ── Text inputs ───────────────────────────────────────────── */
+input[type="text"],
+input[type="number"],
+textarea {
+  background: #1e222d !important;
+  color: #d1d4dc !important;
+  border: 1px solid #2a2e39 !important;
+  border-radius: 4px !important;
+  padding: 5px 8px !important;
+  font-size: 12px !important;
+  font-family: inherit !important;
+  outline: none !important;
+  transition: border-color 0.15s;
+}
+
+input[type="text"]:focus,
+input[type="number"]:focus {
+  border-color: #2962ff !important;
+  box-shadow: 0 0 0 2px rgba(41,98,255,0.2) !important;
+}
+
+input::placeholder { color: #787b86 !important; }
+
+/* ── Upload component ──────────────────────────────────────── */
+.dash-upload {
+  border: 1px dashed #363c4e !important;
+  border-radius: 4px !important;
+  background: transparent !important;
+  transition: border-color 0.15s, background 0.15s;
+  cursor: pointer;
+}
+
+.dash-upload:hover {
+  border-color: #2962ff !important;
+  background: rgba(41,98,255,0.05) !important;
+}
+
+/* ── Graph containers ──────────────────────────────────────── */
+.js-plotly-plot .plotly .main-svg { border-radius: 4px; }
+
+/* ── Modebar (Plotly toolbar) ──────────────────────────────── */
+.modebar-btn path { fill: #787b86 !important; }
+.modebar-btn:hover path { fill: #d1d4dc !important; }
+.modebar { background: transparent !important; }
+
+/* ── Pre / log viewer ──────────────────────────────────────── */
+pre {
+  font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace !important;
+  font-size: 11px !important;
+  color: #8b949e;
+  background: transparent;
+  margin: 0;
+}
+
+/* ── Utility: no text selection on labels ──────────────────── */
+label { user-select: none; }

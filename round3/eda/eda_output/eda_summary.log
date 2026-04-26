@@ -1,0 +1,158 @@
+======================================================================
+ROUND 3 EDA  —  IMC Prosperity 4
+Run at: 2026-04-25 16:59:34
+======================================================================
+
+[1] Loading data …
+  Prices: 360,000 rows | Products: ['HYDROGEL_PACK', 'VELVETFRUIT_EXTRACT', 'VEV_4000', 'VEV_4500', 'VEV_5000', 'VEV_5100', 'VEV_5200', 'VEV_5300', 'VEV_5400', 'VEV_5500', 'VEV_6000', 'VEV_6500']
+  Trades: 4,048 rows | Symbols:  ['HYDROGEL_PACK', 'VELVETFRUIT_EXTRACT', 'VEV_4000', 'VEV_4500', 'VEV_5000', 'VEV_5100', 'VEV_5200', 'VEV_5300', 'VEV_5400', 'VEV_5500', 'VEV_6000', 'VEV_6500']
+
+[2] Plot 01 — Mid-price overview …
+  [saved] 01_midprice_overview.png
+[3] Plot 02 — HYDROGEL_PACK analysis …
+  [saved] 02_hydrogel_analysis.png
+[4] Plot 03 — VF Extract timeseries …
+  [saved] 03_vf_extract_timeseries.png
+[5] Plot 04 — VF Extract returns …
+  [saved] 04_vf_extract_returns.png
+[6] Plot 05 — Rolling volatility …
+  [saved] 05_rolling_volatility.png
+[7] Plot 06 — Option mid-price timeseries …
+  [saved] 06_option_price_timeseries.png
+[8] Computing intrinsic & time value …
+  Computing implied vols (this may take ~30 s) …
+  IV sample size: 30,000 rows
+[9] Plot 07 — Intrinsic vs time value …
+  [saved] 07_intrinsic_time_value.png
+[10] Plot 08 — Moneyness analysis …
+  [saved] 08_moneyness_analysis.png
+[11] Plot 09 — IV smile …
+  [saved] 09_iv_smile.png
+[12] Plot 10 — IV surface …
+  [saved] 10_iv_surface.png
+[13] Plot 11 — IV vs TTE …
+  [saved] 11_iv_vs_tte.png
+[14] Plot 12 — Spread analysis …
+  [saved] 12_spread_analysis.png
+[15] Plot 13 — Order book depth & imbalance …
+  [saved] 13_orderbook_depth_imbalance.png
+[16] Plot 14 — Trade flow & timing …
+  [saved] 14_trade_flow_timing.png
+[17] Plot 15 — Bot behavior: trade price vs mid …
+  [saved] 15_bot_trade_vs_mid.png
+[18] Plot 16 — VWAP analysis …
+  [saved] 16_vwap_analysis.png
+[19] Plot 17 — Imbalance predictiveness …
+  [saved] 17_imbalance_predictive.png
+[20] Plot 18 — QQ plots …
+  [saved] 18_qq_plots.png
+[21] Plot 19 — Option Greeks (delta) …
+  [saved] 19_option_deltas.png
+[22] Plot 20 — P&L scenario: short OTM options …
+  [saved] 20_pnl_scenarios.png
+[23] Plot 21 — Correlation matrix …
+  [saved] 21_correlation_matrix.png
+
+[24] Running hypothesis tests …
+  H1 ADF: error — No module named 'statsmodels'
+  H3 Jarque-Bera(VF returns): stat=159.9943  p=1.81e-35  REJECT H0 → NON-NORMAL
+  H4 ANOVA(IV, Day 0): F=2598.536  p=0  SMILE EXISTS
+  H4 ANOVA(IV, Day 1): F=3817.841  p=0  SMILE EXISTS
+  H4 ANOVA(IV, Day 2): F=5590.207  p=0  SMILE EXISTS
+  H5 KS(Poisson, all trades): stat=0.0961  p=8.891e-25  NON-POISSON
+  H6 OLS(imb→fwdret, VF_Extract): slope=0.01776  r=0.0548  p=2.241e-21  PREDICTIVE
+  H6 OLS(imb→fwdret, HYDROGEL): slope=0.09055  r=0.0406  p=2.136e-12  PREDICTIVE
+  H7 Time-value ≥ 0: 0.47% negative  (OK)
+[25] Plot 22 — Hypothesis test summary …
+  [saved] 22_hypothesis_test_summary.png
+
+======================================================================
+KEY STATISTICS SUMMARY
+======================================================================
+
+VF Extract price stats by day:
+                mean        std     min     max
+data_day                                       
+0         5246.51025  13.677795  5216.5  5284.5
+1         5248.39190  14.614362  5198.0  5283.0
+2         5255.39215  16.985339  5207.0  5300.0
+
+HYDROGEL price stats by day:
+               mean        std     min      max
+data_day                                       
+0         9990.9621  25.328358  9928.0  10071.0
+1         9992.0551  37.613011  9908.5  10079.0
+2         9989.4034  31.622161  9891.0  10051.0
+
+Option mean mid-prices by strike (all days):
+data_day           0           1           2
+product                                     
+VEV_4000  1246.52410  1248.40795  1255.39735
+VEV_4500   746.52160   748.40525   755.40185
+VEV_5000   253.25950   253.26300   258.54470
+VEV_5100   168.10770   164.98320   167.32545
+VEV_5200    97.47090    95.12845    94.04695
+VEV_5300    48.89250    46.90920    44.47810
+VEV_5400    18.46725    15.65420    13.73430
+VEV_5500     8.05895     6.57085     5.29425
+VEV_6000     0.50000     0.50000     0.50000
+VEV_6500     0.50000     0.50000     0.50000
+
+Realized volatility (ann.) per day:
+  Day 0: σ_ann = 0.3391
+  Day 1: σ_ann = 0.3433
+  Day 2: σ_ann = 0.3438
+
+Median IV by strike (all days combined):
+strike
+4000.0    0.335818
+4500.0    0.208558
+5000.0    0.218069
+5100.0    0.216671
+5200.0    0.220269
+5300.0    0.223932
+5400.0    0.207852
+5500.0    0.225991
+6000.0    0.361067
+6500.0    0.546128
+
+Trade count and volume by symbol:
+                     count  volume   mean_price
+symbol                                         
+VELVETFRUIT_EXTRACT   1372    8269  5250.476676
+HYDROGEL_PACK         1010    4078  9990.486139
+VEV_6000               284    1002     0.000000
+VEV_6500               284    1002     0.000000
+VEV_4000               464     940  1249.814655
+VEV_5500               267     937     5.951311
+VEV_5400               225     787    14.884444
+VEV_5300               121     420    44.157025
+VEV_5200                18      63    85.277778
+VEV_4500                 1       1   733.000000
+VEV_5000                 1       1   238.000000
+VEV_5100                 1       1   152.000000
+
+H7 — Negative time-value strikes:
+{4000.0: 605, 4500.0: 807}
+======================================================================
+ADF & KPSS TESTS (statsmodels) — appended after initial run
+======================================================================
+
+HYDROGEL_PACK (n=30,000):
+  ADF: stat=-5.1584  p=1.0685e-05  lags=1  REJECT H0 → STATIONARY
+  KPSS: stat=1.0742  p<=0.01  REJECT H0 → NON-STATIONARY
+  Joint: TREND-STATIONARY (intraday reversion + inter-day drift)
+  Per-day ADF p: Day0=0.00644 [✓] Day1=0.1026 [✗] Day2=0.03188 [✓]
+  Log-returns ADF: stat=-131.29  p≈0 (I(1) process confirmed)
+
+VELVETFRUIT_EXTRACT (n=30,000):
+  ADF: stat=-4.8325  p=4.7119e-05  lags=2  REJECT H0 → STATIONARY
+  KPSS: stat=2.0928  p<=0.01  REJECT H0 → NON-STATIONARY
+  Joint: TREND-STATIONARY (strong intraday reversion, ~8 tick/day upward drift)
+  Per-day ADF p: Day0=0.00734 [✓] Day1=0.02940 [✓] Day2=0.17478 [✗]
+  Log-returns ADF: stat=-107.15  p≈0 (I(1) process confirmed)
+
+INTERPRETATION:
+  Both products are trend-stationary. ADF detects mean-reversion; KPSS detects
+  the slow cross-day drift. Strategy should use rolling fair value (not fixed)
+  to capture intraday reversion while adapting to inter-day level shifts.

@@ -1,0 +1,68 @@
+{
+  "H1_HYDROGEL_ADF": {
+    "error": "No module named 'statsmodels'"
+  },
+  "H2_VF_ADF": {
+    "error": "name 'adfuller' is not defined"
+  },
+  "H3_VF_JB_Normality": {
+    "stat": 159.9943349413807,
+    "p": 1.8099709295040145e-35,
+    "reject_H0": "True",
+    "interpretation": "Non-normal"
+  },
+  "H4_IV_ANOVA_day0": {
+    "F": 2598.535988889532,
+    "p": 0.0,
+    "reject_H0": "True",
+    "interpretation": "IV varies across strikes (smile exists)"
+  },
+  "H4_IV_ANOVA_day1": {
+    "F": 3817.8405897372763,
+    "p": 0.0,
+    "reject_H0": "True",
+    "interpretation": "IV varies across strikes (smile exists)"
+  },
+  "H4_IV_ANOVA_day2": {
+    "F": 5590.20669582009,
+    "p": 0.0,
+    "reject_H0": "True",
+    "interpretation": "IV varies across strikes (smile exists)"
+  },
+  "H5_Poisson_Arrivals": {
+    "ks_stat": 0.09608920088418763,
+    "p": 8.890637963316872e-25,
+    "mean_iat": 989.8579451602246,
+    "reject_H0": "True",
+    "interpretation": "Non-Poisson (clustered/periodic)"
+  },
+  "H6_Imbalance_Pred_VF_Extract": {
+    "slope": 0.01775601510499011,
+    "intercept": 0.0016176541715565592,
+    "r": 0.05481567420079865,
+    "p": 2.2409257525270872e-21,
+    "reject_H0": "True",
+    "interpretation": "Imbalance predicts returns"
+  },
+  "H6_Imbalance_Pred_HYDROGEL": {
+    "slope": 0.09054751284563875,
+    "intercept": 0.00033422087256658147,
+    "r": 0.04057938850240734,
+    "p": 2.136112243706437e-12,
+    "reject_H0": "True",
+    "interpretation": "Imbalance predicts returns"
+  },
+  "H7_TimeValue_Positive": {
+    "pct_negative": 0.4706666666666666,
+    "count_neg": 1412,
+    "by_strike": {
+      "4000.0": 605,
+      "4500.0": 807
+    },
+    "reject_H0": false,
+    "interpretation": "All options priced above intrinsic"
+  },
+  "H8_LjungBox": {
+    "error": "No module named 'statsmodels'"
+  }
+}
